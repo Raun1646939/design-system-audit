@@ -1251,13 +1251,19 @@
       line1.appendChild(cntEl);
     }
 
-    // Zone B: → button — opens match drawer only; row-body click handles navigation
+    // Zone B: → button — navigates to the layer AND opens match drawer
     const btn = document.createElement('button');
     btn.className = 'issue-action';
     btn.textContent = '→';
-    btn.title = 'Find closest match';
+    btn.title = 'Go to layer & find closest match';
     btn.addEventListener('click', e => {
       e.stopPropagation();
+      const nodeIds = group.layers.map(l => l.nodeId);
+      pendingNav = { line2, setLine2Default };
+      parent.postMessage({ pluginMessage: { type: 'navigate-to', nodeIds } }, '*');
+      wrapper.classList.add('nav-flash');
+      setTimeout(() => wrapper.classList.remove('nav-flash'), 300);
+      line2.innerHTML = '<span class="nav-confirm" style="color:var(--text-muted)">…</span>';
       openDrawer(group, wrapper);
     });
     line1.appendChild(btn);

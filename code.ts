@@ -807,26 +807,28 @@ figma.ui.onmessage = async (msg: { type: string; [key: string]: any }) => {
     }
 
   } else if (msg.type === 'navigate-to') {
-    const nodes = (msg.nodeIds as string[])
+    const ids = msg.nodeIds as string[];
+    const candidates = ids
       .map(id => figma.getNodeById(id))
       .filter((n): n is SceneNode =>
-        n !== null &&
-        n.type !== 'DOCUMENT' &&
-        n.type !== 'PAGE' &&
-        'parent' in n &&
-        isOnCurrentPage(n as SceneNode),
+        n !== null && n.type !== 'DOCUMENT' && n.type !== 'PAGE',
       );
-    console.log(`[audit] navigate-to: requested=${(msg.nodeIds as string[]).length} resolved=${nodes.length} currentPage="${figma.currentPage.name}"`);
-    if (nodes.length === 0) {
-      figma.ui.postMessage({
-        type: 'navigation-done',
-        count: 0,
-        error: 'Nodes not found on current page. Re-run scan.',
-      });
+    console.log(`[audit] navigate-to: requested=${ids.length} candidates=${candidates.length} page="${figma.currentPage.name}"`);
+    if (candidates.length === 0) {
+      figma.notify('Layer not found — re-run the scan', { error: true, timeout: 2000 });
+      figma.ui.postMessage({ type: 'navigation-done', count: 0, error: 'Layer not found — re-run scan' });
     } else {
-      figma.currentPage.selection = nodes;
-      figma.viewport.scrollAndZoomIntoView(nodes);
-      figma.ui.postMessage({ type: 'navigation-done', count: nodes.length });
+      try {
+        figma.currentPage.selection = candidates;
+        figma.viewport.scrollAndZoomIntoView(candidates);
+        figma.ui.postMessage({ type: 'navigation-done', count: candidates.length });
+      } catch (err) {
+        // Node exists but is on a different page — tell the user clearly
+        const detail = err instanceof Error ? err.message : String(err);
+        figma.notify(`Wrong page — switch to the scanned page and re-run`, { error: true, timeout: 3000 });
+        figma.ui.postMessage({ type: 'navigation-done', count: 0, error: 'Layer is on a different page. Switch page and re-run scan.' });
+        console.error('[audit] navigate-to error:', detail);
+      }
     }
 
   } else if (msg.type === 'apply-style') {
