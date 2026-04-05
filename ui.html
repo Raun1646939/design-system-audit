@@ -488,10 +488,18 @@
 
   .issue-wrapper {
     border-bottom: 1px solid var(--row-border);
-    transition: opacity 0.3s ease;
+    transition: opacity 0.3s ease, background 0.15s ease;
   }
 
   .issue-wrapper:hover { background: var(--surface); }
+
+  .issue-wrapper.issue-wrapper--selected {
+    background: color-mix(in srgb, var(--accent) 11%, var(--surface));
+  }
+
+  .issue-wrapper.issue-wrapper--selected:hover {
+    background: color-mix(in srgb, var(--accent) 15%, var(--surface));
+  }
 
   .issue-line1 {
     display: flex;
@@ -845,6 +853,24 @@
   let headerLayerCount      = null;
   let headerIssueCount     = null;
   let pendingNav            = null;
+  let selectedIssueWrapper  = null;
+
+  function setSelectedIssueRow(wrapper) {
+    if (selectedIssueWrapper && selectedIssueWrapper !== wrapper) {
+      selectedIssueWrapper.classList.remove('issue-wrapper--selected');
+    }
+    selectedIssueWrapper = wrapper || null;
+    if (selectedIssueWrapper) {
+      selectedIssueWrapper.classList.add('issue-wrapper--selected');
+    }
+  }
+
+  function clearSelectedIssueRow() {
+    if (selectedIssueWrapper) {
+      selectedIssueWrapper.classList.remove('issue-wrapper--selected');
+      selectedIssueWrapper = null;
+    }
+  }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -1266,6 +1292,7 @@
     btn.title = 'Go to layer & find closest match';
     btn.addEventListener('click', e => {
       e.stopPropagation();
+      setSelectedIssueRow(wrapper);
       const nodeIds = group.layers.map(l => l.nodeId);
       pendingNav = { line2, setLine2Default };
       parent.postMessage({ pluginMessage: { type: 'navigate-to', nodeIds } }, '*');
@@ -1301,6 +1328,7 @@
     wrapper.appendChild(line2);
 
     wrapper.addEventListener('click', () => {
+      setSelectedIssueRow(wrapper);
       const nodeIds = group.layers.map(l => l.nodeId);
       pendingNav = { line2, setLine2Default };
       parent.postMessage({ pluginMessage: { type: 'navigate-to', nodeIds } }, '*');
@@ -1322,6 +1350,7 @@
   // ── Tab content ────────────────────────────────────────────────────────────
 
   function buildTabContent(data) {
+    clearSelectedIssueRow();
     const content = document.getElementById('tab-content');
     content.innerHTML = '';
     TABS.forEach(tab => {
@@ -1346,6 +1375,9 @@
   function renderCategoryPanel(category, groups) {
     const panel = document.getElementById(`panel-${category}`);
     if (!panel) return;
+    if (selectedIssueWrapper && panel.contains(selectedIssueWrapper)) {
+      clearSelectedIssueRow();
+    }
     panel.innerHTML = '';
     if (groups.length === 0) {
       const empty = document.createElement('div');
@@ -1393,6 +1425,7 @@
   }
 
   function fadeOutRow(wrapper) {
+    if (wrapper === selectedIssueWrapper) clearSelectedIssueRow();
     wrapper.style.opacity = '0';
     setTimeout(() => {
       wrapper.remove();
@@ -1447,7 +1480,11 @@
       return;
     }
     if (!matches || matches.length === 0) {
-      container.innerHTML = '<div class="drawer-empty">No matches found in connected library</div>';
+      const emptyMsg =
+        currentDrawerGroup && isColorProp(currentDrawerGroup.property)
+          ? 'No close alias color tokens in the library'
+          : 'No matches found in connected library';
+      container.innerHTML = `<div class="drawer-empty">${emptyMsg}</div>`;
       return;
     }
 

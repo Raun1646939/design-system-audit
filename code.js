@@ -448,6 +448,20 @@ function hexToLab(hex) {
 function deltaE76(a, b) {
     return Math.sqrt(Math.pow(a.L - b.L, 2) + Math.pow(a.a - b.a, 2) + Math.pow(a.b - b.b, 2));
 }
+/** True when this variable binds via VARIABLE_ALIAS (semantic token), not raw RGBA (primitive). */
+function variableUsesAliasInAnyMode(variable, collection) {
+    for (const mode of collection.modes) {
+        const raw = variable.valuesByMode[mode.modeId];
+        if (raw === undefined)
+            continue;
+        if (typeof raw !== 'object' || raw === null)
+            continue;
+        const alias = raw;
+        if (alias.type === 'VARIABLE_ALIAS')
+            return true;
+    }
+    return false;
+}
 // Resolve a VariableValue (possibly an alias chain) down to a concrete RGBA.
 // Falls back to figma.variables.getVariableByIdAsync for primitives that
 // weren't explicitly imported (e.g. when only the Aliases collection is enabled).
@@ -499,11 +513,15 @@ async function buildVariableColorIndex() {
         }
     }
     const entries = [];
-    let resolved = 0, unresolved = 0;
+    let resolved = 0, unresolved = 0, skippedPrimitives = 0;
     for (const variable of cachedColorVariables) {
         const collection = collById.get(variable.variableCollectionId);
         if (!collection)
             continue;
+        if (!variableUsesAliasInAnyMode(variable, collection)) {
+            skippedPrimitives++;
+            continue;
+        }
         const modes = [];
         for (const mode of collection.modes) {
             const raw = variable.valuesByMode[mode.modeId];
@@ -522,31 +540,15 @@ async function buildVariableColorIndex() {
             unresolved++;
         }
     }
-    console.log(`[audit] variable index: ${resolved} resolved, ${unresolved} unresolved (alias chain not fully importable)`);
+    console.log(`[audit] variable index: ${resolved} alias color tokens, ${skippedPrimitives} primitives skipped, ${unresolved} unresolved`);
     return entries;
 }
 async function getClosestColorMatches(rawHex) {
-    if (!cachedPaintStyles)
-        cachedPaintStyles = await figma.getLocalPaintStylesAsync();
     if (!cachedVariableColorIndex)
         cachedVariableColorIndex = await buildVariableColorIndex();
     const targetLab = hexToLab(rawHex);
     const candidates = [];
-    // Paint style candidates
-    for (const style of cachedPaintStyles) {
-        for (const paint of style.paints) {
-            if (paint.type !== 'SOLID')
-                continue;
-            const styleHex = solidPaintToHex(paint);
-            candidates.push({
-                styleId: style.id, styleName: style.name,
-                hexValue: styleHex,
-                distanceScore: Math.round(deltaE76(targetLab, hexToLab(styleHex)) * 100) / 100,
-            });
-            break;
-        }
-    }
-    // Variable (alias) candidates — includes multi-theme colors from the library
+    // Only color variables that bind via alias (semantic tokens), never primitives or paint styles
     for (const entry of cachedVariableColorIndex) {
         let bestDist = Infinity, bestHex = '';
         for (const mode of entry.modes) {

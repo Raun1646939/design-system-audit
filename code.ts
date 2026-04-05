@@ -575,6 +575,18 @@ interface VariableColorEntry {
   modes: VariableColorMode[];
 }
 
+/** True when this variable binds via VARIABLE_ALIAS (semantic token), not raw RGBA (primitive). */
+function variableUsesAliasInAnyMode(variable: Variable, collection: VariableCollection): boolean {
+  for (const mode of collection.modes) {
+    const raw = variable.valuesByMode[mode.modeId];
+    if (raw === undefined) continue;
+    if (typeof raw !== 'object' || raw === null) continue;
+    const alias = raw as VariableAlias;
+    if (alias.type === 'VARIABLE_ALIAS') return true;
+  }
+  return false;
+}
+
 interface ColorMatch {
   // Paint style match (optional — absent for variable matches)
   styleId?: string;
@@ -640,10 +652,14 @@ async function buildVariableColorIndex(): Promise<VariableColorEntry[]> {
   }
 
   const entries: VariableColorEntry[] = [];
-  let resolved = 0, unresolved = 0;
+  let resolved = 0, unresolved = 0, skippedPrimitives = 0;
   for (const variable of cachedColorVariables) {
     const collection = collById.get(variable.variableCollectionId);
     if (!collection) continue;
+    if (!variableUsesAliasInAnyMode(variable, collection)) {
+      skippedPrimitives++;
+      continue;
+    }
     const modes: VariableColorMode[] = [];
     for (const mode of collection.modes) {
       const raw = variable.valuesByMode[mode.modeId];
@@ -659,32 +675,19 @@ async function buildVariableColorIndex(): Promise<VariableColorEntry[]> {
       unresolved++;
     }
   }
-  console.log(`[audit] variable index: ${resolved} resolved, ${unresolved} unresolved (alias chain not fully importable)`);
+  console.log(
+    `[audit] variable index: ${resolved} alias color tokens, ${skippedPrimitives} primitives skipped, ${unresolved} unresolved`,
+  );
   return entries;
 }
 
 async function getClosestColorMatches(rawHex: string): Promise<ColorMatch[]> {
-  if (!cachedPaintStyles) cachedPaintStyles = await figma.getLocalPaintStylesAsync();
   if (!cachedVariableColorIndex) cachedVariableColorIndex = await buildVariableColorIndex();
 
   const targetLab = hexToLab(rawHex);
   const candidates: ColorMatch[] = [];
 
-  // Paint style candidates
-  for (const style of cachedPaintStyles) {
-    for (const paint of style.paints) {
-      if (paint.type !== 'SOLID') continue;
-      const styleHex = solidPaintToHex(paint as SolidPaint);
-      candidates.push({
-        styleId: style.id, styleName: style.name,
-        hexValue: styleHex,
-        distanceScore: Math.round(deltaE76(targetLab, hexToLab(styleHex)) * 100) / 100,
-      });
-      break;
-    }
-  }
-
-  // Variable (alias) candidates — includes multi-theme colors from the library
+  // Only color variables that bind via alias (semantic tokens), never primitives or paint styles
   for (const entry of cachedVariableColorIndex) {
     let bestDist = Infinity, bestHex = '';
     for (const mode of entry.modes) {
