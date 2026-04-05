@@ -449,7 +449,9 @@ function deltaE76(a, b) {
     return Math.sqrt(Math.pow(a.L - b.L, 2) + Math.pow(a.a - b.a, 2) + Math.pow(a.b - b.b, 2));
 }
 // Resolve a VariableValue (possibly an alias chain) down to a concrete RGBA.
-function resolveVariableValue(val, varById, visited) {
+// Falls back to figma.variables.getVariableByIdAsync for primitives that
+// weren't explicitly imported (e.g. when only the Aliases collection is enabled).
+async function resolveVariableValue(val, varById, visited) {
     if (typeof val !== 'object' || val === null)
         return null;
     if ('r' in val && 'g' in val && 'b' in val && 'a' in val)
@@ -459,15 +461,28 @@ function resolveVariableValue(val, varById, visited) {
         return null;
     if (visited.has(alias.id))
         return null;
-    const target = varById.get(alias.id);
+    let target = varById.get(alias.id);
+    if (!target) {
+        // Primitive not in our explicit cache — fetch it directly.
+        // Figma makes transitively-referenced variables accessible by ID once an
+        // alias that references them has been imported.
+        try {
+            const fetched = await figma.variables.getVariableByIdAsync(alias.id);
+            if (fetched) {
+                target = fetched;
+                varById.set(fetched.id, fetched);
+            }
+        }
+        catch ( /* variable not accessible */_a) { /* variable not accessible */ }
+    }
     if (!target)
         return null;
     const next = new Set(visited);
     next.add(alias.id);
     for (const modeId of Object.keys(target.valuesByMode)) {
-        const resolved = resolveVariableValue(target.valuesByMode[modeId], varById, next);
-        if (resolved)
-            return resolved;
+        const r = await resolveVariableValue(target.valuesByMode[modeId], varById, next);
+        if (r)
+            return r;
     }
     return null;
 }
@@ -484,6 +499,7 @@ async function buildVariableColorIndex() {
         }
     }
     const entries = [];
+    let resolved = 0, unresolved = 0;
     for (const variable of cachedColorVariables) {
         const collection = collById.get(variable.variableCollectionId);
         if (!collection)
@@ -493,15 +509,20 @@ async function buildVariableColorIndex() {
             const raw = variable.valuesByMode[mode.modeId];
             if (raw === undefined)
                 continue;
-            const rgba = resolveVariableValue(raw, varById, new Set([variable.id]));
+            const rgba = await resolveVariableValue(raw, varById, new Set([variable.id]));
             if (!rgba)
                 continue;
             modes.push({ modeId: mode.modeId, modeName: mode.name, hex: toHex(rgba.r) + toHex(rgba.g) + toHex(rgba.b) });
         }
         if (modes.length > 0) {
             entries.push({ variableId: variable.id, variableName: variable.name, collectionName: collection.name, modes });
+            resolved++;
+        }
+        else {
+            unresolved++;
         }
     }
+    console.log(`[audit] variable index: ${resolved} resolved, ${unresolved} unresolved (alias chain not fully importable)`);
     return entries;
 }
 async function getClosestColorMatches(rawHex) {
