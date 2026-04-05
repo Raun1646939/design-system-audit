@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Audit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  :root {
+    --bg: #111111;
+    --surface: #1A1A1A;
+    --border: #2A2A2A;
+    --row-border: #1E1E1E;
+    --accent: #7B61FF;
+    --destructive: #FF6B6B;
+    --success: #4ADE80;
+    --text-primary: #E8E8E8;
+    --text-secondary: #888888;
+    --text-muted: #666666;
+    --text-ghost: #444444;
+    --font: "JetBrains Mono", monospace;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text-primary);
+    font-family: var(--font);
+    font-size: 13px;
+    width: 320px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Header ── */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .header-title {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    color: var(--text-primary);
+  }
+
+  .header-icon {
+    width: 16px;
+    height: 16px;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: color 0.15s;
+  }
+
+  .header-icon:hover { color: var(--text-secondary); }
+
+  /* ── Tab bar ── */
+  .tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .tab {
+    flex: 1;
+    padding: 9px 0;
+    font-family: var(--font);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+    margin-bottom: -1px;
+  }
+
+  .tab:hover { color: var(--text-secondary); }
+
+  .tab.active {
+    color: var(--text-primary);
+    border-bottom-color: var(--accent);
+  }
+
+  /* ── Panels ── */
+  .panel {
+    display: none;
+    flex: 1;
+    flex-direction: column;
+  }
+
+  .panel.active { display: flex; }
+
+  /* ── Scan panel ── */
+  .scan-panel {
+    padding: 20px 14px;
+    gap: 16px;
+  }
+
+  .btn-run {
+    width: 100%;
+    padding: 10px 0;
+    font-family: var(--font);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: transparent;
+    border: 1px solid var(--accent);
+    border-radius: 3px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, opacity 0.15s;
+  }
+
+  .btn-run:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+
+  .btn-run:active:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+
+  .btn-run:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* ── Issues panel ── */
+  .issues-panel {
+    flex: 1;
+    overflow-y: auto;
+  }
+
+  /* summary bar */
+  .issues-summary {
+    padding: 10px 14px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  /* empty / no-scan state */
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    text-align: center;
+    padding: 40px 14px;
+  }
+
+  .empty-icon {
+    width: 24px;
+    height: 24px;
+    opacity: 0.2;
+    margin-bottom: 2px;
+  }
+
+  .empty-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.04em;
+  }
+
+  /* ── Category section ── */
+  .category {
+    border-bottom: 1px solid var(--border);
+  }
+
+  .category-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px 7px;
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    z-index: 1;
+  }
+
+  .category-label {
+    font-size: 9px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  .category-count {
+    font-size: 9px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    color: var(--text-ghost);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1px 5px;
+  }
+
+  /* ── Issue row ── */
+  .issue-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 7px 14px;
+    border-top: 1px solid var(--row-border);
+    gap: 8px;
+  }
+
+  .issue-row:hover {
+    background: var(--surface);
+  }
+
+  .issue-left {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0; /* allow truncation */
+  }
+
+  .issue-name {
+    font-size: 13px;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 180px;
+  }
+
+  .issue-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .issue-tag {
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 1px 5px;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+
+  .tag-fill     { color: #E8A87C; background: color-mix(in srgb, #E8A87C 12%, transparent); }
+  .tag-stroke   { color: #7EC8E3; background: color-mix(in srgb, #7EC8E3 12%, transparent); }
+  .tag-text     { color: #4ADE80; background: color-mix(in srgb, #4ADE80 12%, transparent); }
+  .tag-effect   { color: #C084FC; background: color-mix(in srgb, #C084FC 12%, transparent); }
+
+  .issue-value {
+    font-size: 11px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 110px;
+  }
+
+  .issue-action {
+    font-family: var(--font);
+    font-size: 10px;
+    color: var(--accent);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px 2px;
+    flex-shrink: 0;
+    opacity: 0.7;
+    transition: opacity 0.15s;
+  }
+
+  .issue-action:hover { opacity: 1; }
+  .issue-action:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  /* ── Applied confirmation ── */
+  .applied-confirm {
+    padding: 7px 14px;
+    font-size: 11px;
+    color: var(--success);
+    letter-spacing: 0.06em;
+    border-top: 1px solid var(--row-border);
+    animation: fadeout 1.6s ease forwards;
+  }
+
+  @keyframes fadeout {
+    0%   { opacity: 1; }
+    60%  { opacity: 1; }
+    100% { opacity: 0; }
+  }
+
+  /* ── Match popover ── */
+  .match-popover {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-top: none;
+    overflow: hidden;
+  }
+
+  .match-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 14px;
+    cursor: pointer;
+    border-top: 1px solid var(--row-border);
+    transition: background 0.12s;
+  }
+
+  .match-option:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+
+  .match-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    flex-shrink: 0;
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+
+  .match-type-preview {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    flex-shrink: 0;
+    background: var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 7px;
+    color: var(--text-muted);
+  }
+
+  .match-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .match-name {
+    font-size: 11px;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .match-sub {
+    font-size: 10px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .match-badge {
+    font-size: 9px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 1px 5px;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+
+  .badge-exact       { color: var(--success);      background: color-mix(in srgb, var(--success)      12%, transparent); }
+  .badge-close       { color: var(--accent);        background: color-mix(in srgb, var(--accent)        12%, transparent); }
+  .badge-approximate { color: var(--text-secondary); background: color-mix(in srgb, var(--text-secondary) 12%, transparent); }
+
+  .match-loading {
+    padding: 10px 14px;
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.06em;
+  }
+
+  .match-empty {
+    padding: 10px 14px;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  /* ── Footer ── */
+  .footer {
+    padding: 8px 14px;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .footer-version {
+    font-size: 9px;
+    color: var(--text-ghost);
+    letter-spacing: 0.08em;
+  }
+</style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="header">
+    <span class="header-title">AUDIT</span>
+    <svg class="header-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Settings">
+      <circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.2"/>
+      <path d="M8 1v2M8 13v2M1 8h2M13 8h2M2.93 2.93l1.41 1.41M11.66 11.66l1.41 1.41M2.93 13.07l1.41-1.41M11.66 4.34l1.41-1.41"
+            stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+    </svg>
+  </header>
+
+  <!-- Tab bar -->
+  <nav class="tabs" role="tablist">
+    <button class="tab active" role="tab" aria-selected="true"  data-panel="scan">Scan</button>
+    <button class="tab"        role="tab" aria-selected="false" data-panel="issues">Issues</button>
+  </nav>
+
+  <!-- Scan panel -->
+  <section class="panel scan-panel active" id="panel-scan" role="tabpanel">
+    <button class="btn-run" id="btn-run">Run Scan</button>
+  </section>
+
+  <!-- Issues panel -->
+  <section class="panel issues-panel" id="panel-issues" role="tabpanel">
+    <div id="issues-content">
+      <div class="empty-state">
+        <svg class="empty-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="12" cy="12" r="9" stroke="#E8E8E8" stroke-width="1.5"/>
+          <path d="M12 8v5M12 16v.5" stroke="#E8E8E8" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span class="empty-label">No scan run yet</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <span class="footer-version">v0.1.0</span>
+  </footer>
+
+<script>
+  // ── Tab switching ──────────────────────────────────────────────────────────
+
+  function activateTab(panelId) {
+    document.querySelectorAll('.tab').forEach(t => {
+      const active = t.dataset.panel === panelId;
+      t.classList.toggle('active', active);
+      t.setAttribute('aria-selected', String(active));
+    });
+    document.querySelectorAll('.panel').forEach(p => {
+      p.classList.toggle('active', p.id === 'panel-' + panelId);
+    });
+  }
+
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => activateTab(tab.dataset.panel));
+  });
+
+  // ── Scan button ────────────────────────────────────────────────────────────
+
+  const btnRun = document.getElementById('btn-run');
+
+  btnRun.addEventListener('click', () => {
+    btnRun.textContent = 'Scanning...';
+    btnRun.disabled = true;
+    parent.postMessage({ pluginMessage: { type: 'run-scan' } }, '*');
+  });
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  const TAG_CONFIG = {
+    fill:       { label: 'Fill',   cls: 'tag-fill'   },
+    stroke:     { label: 'Stroke', cls: 'tag-stroke' },
+    typography: { label: 'Text',   cls: 'tag-text'   },
+    effect:     { label: 'Effect', cls: 'tag-effect' },
+  };
+
+  const CATEGORY_LABELS = {
+    fills:      'Fills',
+    strokes:    'Strokes',
+    typography: 'Typography',
+    effects:    'Effects',
+  };
+
+  // ── Issue row DOM (built imperatively to attach live references) ───────────
+
+  function buildIssueRow(issue) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'issue-row-wrapper';
+
+    // Row itself
+    const row = document.createElement('div');
+    row.className = 'issue-row';
+    row.dataset.nodeId   = issue.nodeId;
+    row.dataset.property = issue.property;
+    row.dataset.rawValue = issue.rawValue;
+
+    const tag = TAG_CONFIG[issue.property] || { label: issue.property.toUpperCase(), cls: '' };
+
+    row.innerHTML = `
+      <div class="issue-left">
+        <span class="issue-name" title="${escapeHtml(issue.nodeName)}">${escapeHtml(issue.nodeName)}</span>
+        <div class="issue-meta">
+          <span class="issue-tag ${tag.cls}">${tag.label}</span>
+          <span class="issue-value" title="${escapeHtml(issue.rawValue)}">${escapeHtml(issue.rawValue)}</span>
+        </div>
+      </div>
+      <button class="issue-action" title="Fix">→</button>`;
+
+    const actionBtn = row.querySelector('.issue-action');
+    actionBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      togglePopover(wrapper, issue, actionBtn);
+    });
+
+    wrapper.appendChild(row);
+    return wrapper;
+  }
+
+  // ── Popover ────────────────────────────────────────────────────────────────
+
+  // Only one popover open at a time — track the active wrapper.
+  let activePopoverWrapper = null;
+
+  function closeActivePopover() {
+    if (!activePopoverWrapper) return;
+    const existing = activePopoverWrapper.querySelector('.match-popover');
+    if (existing) existing.remove();
+    activePopoverWrapper = null;
+  }
+
+  function togglePopover(wrapper, issue, actionBtn) {
+    // Close if already open for this row.
+    if (activePopoverWrapper === wrapper) {
+      closeActivePopover();
+      return;
+    }
+    closeActivePopover();
+
+    activePopoverWrapper = wrapper;
+
+    const popover = document.createElement('div');
+    popover.className = 'match-popover';
+    popover.innerHTML = `<div class="match-loading">Loading matches…</div>`;
+    wrapper.appendChild(popover);
+
+    actionBtn.disabled = true;
+
+    // Request matches from plugin thread.
+    pendingMatchContext = { wrapper, issue, popover, actionBtn };
+    parent.postMessage({
+      pluginMessage: { type: 'get-closest-match', property: issue.property, rawValue: issue.rawValue }
+    }, '*');
+  }
+
+  // Held while waiting for closest-match-result.
+  let pendingMatchContext = null;
+
+  function renderPopover(matches, { wrapper, issue, popover, actionBtn }) {
+    actionBtn.disabled = false;
+
+    if (!matches || matches.length === 0) {
+      popover.innerHTML = `<div class="match-empty">No matching styles found</div>`;
+      return;
+    }
+
+    popover.innerHTML = '';
+    matches.forEach((match, idx) => {
+      const option = document.createElement('div');
+      option.className = 'match-option';
+      option.setAttribute('role', 'button');
+      option.setAttribute('tabindex', '0');
+
+      // Determine badge label from distance (color) or score (typography).
+      let badgeCls, badgeLabel;
+      if (match.distanceScore !== undefined) {
+        // Color match
+        if      (match.distanceScore < 2)  { badgeCls = 'badge-exact';       badgeLabel = 'Exact'; }
+        else if (match.distanceScore < 10) { badgeCls = 'badge-close';       badgeLabel = 'Close'; }
+        else                               { badgeCls = 'badge-approximate'; badgeLabel = 'Approx'; }
+      } else {
+        // Typography match — score is inverted (higher = better), cap at 13 for full marks.
+        const pct = Math.min(match.score / 13, 1);
+        if      (pct > 0.85) { badgeCls = 'badge-exact';       badgeLabel = 'Exact'; }
+        else if (pct > 0.5)  { badgeCls = 'badge-close';       badgeLabel = 'Close'; }
+        else                  { badgeCls = 'badge-approximate'; badgeLabel = 'Approx'; }
+      }
+
+      // Preview element: swatch for colors, "Aa" chip for text/effect.
+      let previewEl;
+      if (match.hexValue) {
+        previewEl = `<span class="match-swatch" style="background:#${escapeHtml(match.hexValue)}"></span>`;
+      } else {
+        previewEl = `<span class="match-type-preview">Aa</span>`;
+      }
+
+      const subLine = match.distanceScore !== undefined
+        ? `#${escapeHtml(match.hexValue)} · ΔE ${match.distanceScore}`
+        : escapeHtml(match.previewLabel || '');
+
+      option.innerHTML = `
+        ${previewEl}
+        <div class="match-info">
+          <span class="match-name">${escapeHtml(match.styleName)}</span>
+          <span class="match-sub">${subLine}</span>
+        </div>
+        <span class="match-badge ${badgeCls}">${badgeLabel}</span>`;
+
+      const applyMatch = () => {
+        parent.postMessage({
+          pluginMessage: {
+            type: 'apply-style',
+            nodeId:   issue.nodeId,
+            property: issue.property,
+            styleId:  match.styleId,
+          }
+        }, '*');
+        // Optimistically stash context for apply-style-result handler.
+        pendingApplyContext = { wrapper };
+        closeActivePopover();
+      };
+
+      option.addEventListener('click', applyMatch);
+      option.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') applyMatch(); });
+      popover.appendChild(option);
+    });
+  }
+
+  // ── Apply-style result ─────────────────────────────────────────────────────
+
+  let pendingApplyContext = null;
+
+  function handleApplyResult(msg) {
+    const ctx = pendingApplyContext;
+    pendingApplyContext = null;
+    if (!ctx) return;
+
+    const { wrapper } = ctx;
+
+    if (!msg.ok) {
+      // Show error inline without removing the row.
+      const errEl = document.createElement('div');
+      errEl.className = 'applied-confirm';
+      errEl.style.color = 'var(--destructive)';
+      errEl.textContent = msg.error || 'Apply failed';
+      wrapper.appendChild(errEl);
+      setTimeout(() => errEl.remove(), 2000);
+      return;
+    }
+
+    if (msg.stillHasIssue) {
+      // Style was set but the node still has another unlinked property — keep row.
+      const noteEl = document.createElement('div');
+      noteEl.className = 'applied-confirm';
+      noteEl.textContent = 'Applied';
+      wrapper.appendChild(noteEl);
+      setTimeout(() => noteEl.remove(), 1600);
+    } else {
+      // Issue resolved — fade out and remove the row wrapper.
+      const confirmEl = document.createElement('div');
+      confirmEl.className = 'applied-confirm';
+      confirmEl.textContent = 'Applied';
+      wrapper.parentNode && wrapper.parentNode.insertBefore(confirmEl, wrapper.nextSibling);
+
+      wrapper.style.transition = 'opacity 0.3s ease';
+      wrapper.style.opacity = '0';
+      setTimeout(() => {
+        wrapper.remove();
+        // Remove confirm message after its own animation finishes (1.6s).
+        setTimeout(() => confirmEl.remove(), 1600);
+        // Update the summary count.
+        refreshSummary();
+      }, 300);
+    }
+  }
+
+  function refreshSummary() {
+    const summaryEl = document.querySelector('.issues-summary');
+    if (!summaryEl) return;
+    const remaining = document.querySelectorAll('.issue-row-wrapper').length;
+    if (remaining === 0) {
+      // All issues resolved — show success empty state.
+      const content = document.getElementById('issues-content');
+      content.innerHTML = `
+        <div class="empty-state">
+          <svg class="empty-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="12" cy="12" r="9" stroke="#4ADE80" stroke-width="1.5"/>
+            <path d="M8 12l3 3 5-5" stroke="#4ADE80" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span class="empty-label">All styles are linked</span>
+        </div>`;
+      return;
+    }
+    const layers = new Set(
+      [...document.querySelectorAll('.issue-row')].map(r => r.dataset.nodeId)
+    ).size;
+    summaryEl.textContent = `${remaining} issue${remaining !== 1 ? 's' : ''} across ${layers} layer${layers !== 1 ? 's' : ''}`;
+  }
+
+  // ── Issues rendering ───────────────────────────────────────────────────────
+
+  function buildCategory(key, issues) {
+    if (!issues || issues.length === 0) return null;
+
+    const section = document.createElement('div');
+    section.className = 'category';
+
+    const header = document.createElement('div');
+    header.className = 'category-header';
+    header.innerHTML = `
+      <span class="category-label">${escapeHtml(CATEGORY_LABELS[key] || key)}</span>
+      <span class="category-count">${issues.length}</span>`;
+    section.appendChild(header);
+
+    issues.forEach(issue => section.appendChild(buildIssueRow(issue)));
+    return section;
+  }
+
+  function renderResults(data) {
+    const allIssues = [
+      ...(data.fills      || []),
+      ...(data.strokes    || []),
+      ...(data.typography || []),
+      ...(data.effects    || []),
+    ];
+
+    const uniqueLayers = new Set(allIssues.map(i => i.nodeId)).size;
+    const totalCount   = allIssues.length;
+    const content      = document.getElementById('issues-content');
+
+    if (totalCount === 0) {
+      content.innerHTML = `
+        <div class="empty-state">
+          <svg class="empty-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="12" cy="12" r="9" stroke="#4ADE80" stroke-width="1.5"/>
+            <path d="M8 12l3 3 5-5" stroke="#4ADE80" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span class="empty-label">All styles are linked</span>
+        </div>`;
+      return;
+    }
+
+    content.innerHTML = '';
+
+    const summary = document.createElement('div');
+    summary.className = 'issues-summary';
+    summary.textContent = `${totalCount} issue${totalCount !== 1 ? 's' : ''} across ${uniqueLayers} layer${uniqueLayers !== 1 ? 's' : ''}`;
+    content.appendChild(summary);
+
+    ['fills', 'strokes', 'typography', 'effects'].forEach(key => {
+      const section = buildCategory(key, data[key]);
+      if (section) content.appendChild(section);
+    });
+  }
+
+  // ── Close popover on outside click ────────────────────────────────────────
+
+  document.addEventListener('click', (e) => {
+    if (activePopoverWrapper && !activePopoverWrapper.contains(e.target)) {
+      closeActivePopover();
+    }
+  });
+
+  // ── Message bridge ─────────────────────────────────────────────────────────
+
+  window.onmessage = event => {
+    const msg = event.data.pluginMessage;
+    if (!msg) return;
+
+    if (msg.type === 'pong') {
+      console.log('[audit] pong received');
+
+    } else if (msg.type === 'scan-results') {
+      btnRun.textContent = 'Run Scan';
+      btnRun.disabled = false;
+      renderResults(msg.data);
+      activateTab('issues');
+
+    } else if (msg.type === 'closest-match-result') {
+      if (pendingMatchContext) {
+        renderPopover(msg.matches, pendingMatchContext);
+        pendingMatchContext = null;
+      }
+
+    } else if (msg.type === 'apply-style-result') {
+      handleApplyResult(msg);
+    }
+  };
+
+  parent.postMessage({ pluginMessage: { type: 'ping' } }, '*');
+</script>
+</body>
+</html>
