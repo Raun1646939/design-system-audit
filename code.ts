@@ -808,11 +808,11 @@ figma.ui.onmessage = async (msg: { type: string; [key: string]: any }) => {
 
   } else if (msg.type === 'navigate-to') {
     const ids = msg.nodeIds as string[];
-    const candidates = ids
-      .map(id => figma.getNodeById(id))
-      .filter((n): n is SceneNode =>
-        n !== null && n.type !== 'DOCUMENT' && n.type !== 'PAGE',
-      );
+    // dynamic-page requires the async variant of getNodeById
+    const resolved = await Promise.all(ids.map(id => figma.getNodeByIdAsync(id)));
+    const candidates = resolved.filter((n): n is SceneNode =>
+      n !== null && n.type !== 'DOCUMENT' && n.type !== 'PAGE',
+    );
     console.log(`[audit] navigate-to: requested=${ids.length} candidates=${candidates.length} page="${figma.currentPage.name}"`);
     if (candidates.length === 0) {
       figma.notify('Layer not found — re-run the scan', { error: true, timeout: 2000 });
@@ -823,9 +823,8 @@ figma.ui.onmessage = async (msg: { type: string; [key: string]: any }) => {
         figma.viewport.scrollAndZoomIntoView(candidates);
         figma.ui.postMessage({ type: 'navigation-done', count: candidates.length });
       } catch (err) {
-        // Node exists but is on a different page — tell the user clearly
         const detail = err instanceof Error ? err.message : String(err);
-        figma.notify(`Wrong page — switch to the scanned page and re-run`, { error: true, timeout: 3000 });
+        figma.notify('Wrong page — switch to the scanned page and re-run', { error: true, timeout: 3000 });
         figma.ui.postMessage({ type: 'navigation-done', count: 0, error: 'Layer is on a different page. Switch page and re-run scan.' });
         console.error('[audit] navigate-to error:', detail);
       }
@@ -839,7 +838,7 @@ figma.ui.onmessage = async (msg: { type: string; [key: string]: any }) => {
     };
     const errors: string[] = [];
     for (const nodeId of nodeIds) {
-      const node = figma.getNodeById(nodeId);
+      const node = await figma.getNodeByIdAsync(nodeId);
       if (!node || node.type === 'DOCUMENT' || node.type === 'PAGE') {
         errors.push(`${nodeId}: not found`);
         continue;
@@ -879,7 +878,7 @@ figma.ui.onmessage = async (msg: { type: string; [key: string]: any }) => {
     }
     const errors: string[] = [];
     for (const nodeId of nodeIds) {
-      const node = figma.getNodeById(nodeId);
+      const node = await figma.getNodeByIdAsync(nodeId);
       if (!node || node.type === 'DOCUMENT' || node.type === 'PAGE') {
         errors.push(`${nodeId}: not found`);
         continue;
