@@ -1,4 +1,4 @@
-figma.showUI(__html__, { width: 320, height: 560 });
+figma.showUI(__html__, { width: 360, height: 720 });
 
 // ─── Init (async; dynamic-page documentAccess forbids sync getLocal*Styles) ─
 void (async function sendInit(): Promise<void> {
