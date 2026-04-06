@@ -193,11 +193,12 @@ function getRawPaintValues(node) {
     if ('fills' in node && Array.isArray(node.fills)) {
         const styleUnbound = !('fillStyleId' in node) || node.fillStyleId === '';
         if (styleUnbound) {
+            const fillKind = node.type === 'TEXT' ? 'textColor' : 'fill';
             node.fills.forEach((paint, i) => {
                 if (paint.type === 'SOLID' && !isFillIndexBound(node, i)) {
                     records.push({
                         nodeId: node.id, nodeName: node.name,
-                        property: 'fill', rawValue: solidPaintToHex(paint),
+                        property: fillKind, rawValue: solidPaintToHex(paint),
                     });
                 }
             });
@@ -354,8 +355,8 @@ async function collectLibraryInfo() {
 }
 // ─── Master scan ──────────────────────────────────────────────────────────────
 async function runScan(scope) {
-    const rawFills = [];
-    const rawStrokes = [];
+    /** All rogue solid colors: shape fills, text fills, strokes — shown under COLORS tab */
+    const rawColors = [];
     const rawText = [];
     const rawSpacing = [];
     const rawRadius = [];
@@ -373,13 +374,8 @@ async function runScan(scope) {
         traverseNodes(root, (node) => {
             layerCount++;
             for (const r of getRawPaintValues(node)) {
-                if (r.property === 'fill') {
-                    if (!DEFAULT_SUPPRESSED_VALUES.has(r.rawValue.toUpperCase()))
-                        rawFills.push(r);
-                }
-                else {
-                    rawStrokes.push(r);
-                }
+                if (!DEFAULT_SUPPRESSED_VALUES.has(r.rawValue.toUpperCase()))
+                    rawColors.push(r);
             }
             rawText.push(...getRawTextStyles(node));
             rawSpacing.push(...getRawSpacingValues(node));
@@ -394,8 +390,7 @@ async function runScan(scope) {
     // Helper to yield between category posts so the UI can repaint
     const yield_ = () => new Promise(resolve => setTimeout(resolve, 0));
     const categories = [
-        { category: 'fills', groups: groupRecords(rawFills, true) },
-        { category: 'strokes', groups: groupRecords(rawStrokes, true) },
+        { category: 'fills', groups: groupRecords(rawColors, true) },
         { category: 'text', groups: groupRecords(rawText) },
         { category: 'spacing', groups: groupRecords(rawSpacing) },
         { category: 'radius', groups: groupRecords(rawRadius) },
@@ -543,13 +538,155 @@ async function buildVariableColorIndex() {
     console.log(`[audit] variable index: ${resolved} alias color tokens, ${skippedPrimitives} primitives skipped, ${unresolved} unresolved`);
     return entries;
 }
-async function getClosestColorMatches(rawHex) {
-    if (!cachedVariableColorIndex)
-        cachedVariableColorIndex = await buildVariableColorIndex();
-    const targetLab = hexToLab(rawHex);
-    const candidates = [];
-    // Only color variables that bind via alias (semantic tokens), never primitives or paint styles
-    for (const entry of cachedVariableColorIndex) {
+/** Lowercase path-ish string with slashes/dots treated as token separators */
+function normalizeTokenLabel(entry) {
+    return `${entry.variableName} ${entry.collectionName}`
+        .toLowerCase()
+        .replace(/[\\/._]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+/** FILL / shape: never suggest aliases whose names imply text, stroke, or border UI roles */
+function isExcludedAliasForFill(norm) {
+    if (/\bborder\b/.test(norm))
+        return true;
+    if (/\bstroke\b/.test(norm))
+        return true;
+    if (/\bdivider\b/.test(norm) || /\bseparator\b/.test(norm) || /\boutline\b/.test(norm) || /\bhairline\b/.test(norm))
+        return true;
+    if (/\btext-inverse\b/.test(norm) || norm.includes('text-inverse'))
+        return true;
+    if (/\btext\b/.test(norm))
+        return true;
+    if (/\b(fg|foreground)\b/.test(norm))
+        return true;
+    if (/\blabel\b/.test(norm) || /\bheading\b/.test(norm) || /\bcaption\b/.test(norm))
+        return true;
+    return false;
+}
+/**
+ * Perceptual confidence from ΔE76 (piecewise, similar to common QC bands).
+ * Not CIEDE2000 — kept lightweight; weights lean on semantics for ties.
+ */
+function perceptualConfidenceFromDeltaE76(deltaE) {
+    if (!isFinite(deltaE) || deltaE < 0)
+        return 0;
+    if (deltaE <= 0.5)
+        return 100;
+    if (deltaE <= 1)
+        return 97;
+    if (deltaE <= 1.5)
+        return 93;
+    if (deltaE <= 2)
+        return 89;
+    if (deltaE <= 3)
+        return 83;
+    if (deltaE <= 4)
+        return 77;
+    if (deltaE <= 5)
+        return 72;
+    if (deltaE <= 6)
+        return 67;
+    if (deltaE <= 8)
+        return 58;
+    if (deltaE <= 10)
+        return 49;
+    if (deltaE <= 12)
+        return 41;
+    if (deltaE <= 15)
+        return 33;
+    return Math.max(8, Math.round(28 - deltaE * 1.1));
+}
+/** Semantic fit 0–100 for TEXT node fill (glyph) color */
+function semanticConfidenceTextColor(norm) {
+    if (/\btext-inverse\b/.test(norm) || /inverse[-\s]?text/.test(norm))
+        return 100;
+    if (norm.includes('text-inverse'))
+        return 100;
+    if (/\bborder\b/.test(norm) && !/\btext\b/.test(norm))
+        return 34;
+    if (/\bborder\b/.test(norm))
+        return 46;
+    if (/\btext\b/.test(norm))
+        return 94;
+    if (/\b(fg|foreground)\b/.test(norm))
+        return 82;
+    if (/\bheading\b/.test(norm))
+        return 76;
+    if (/\blabel\b/.test(norm) || /\bcaption\b/.test(norm) || /\bbody\b/.test(norm))
+        return 72;
+    return 56;
+}
+/** Semantic fit 0–100 for stroke / border color */
+function semanticConfidenceStroke(norm) {
+    if (/\bborder\b/.test(norm))
+        return 100;
+    if (/\b(outline|stroke|divider|separator|hairline)\b/.test(norm))
+        return 86;
+    if (/\btext\b/.test(norm) && !/\bborder\b/.test(norm))
+        return 36;
+    return 54;
+}
+/** Semantic fit 0–100 for shape / surface fill (tokens already filtered) */
+function semanticConfidenceFill(norm) {
+    if (/\b(bg|background|surface|canvas|container|layer|fill|base)\b/.test(norm))
+        return 90;
+    if (/\b(icon|illustration|graphic|decoration)\b/.test(norm))
+        return 84;
+    if (/\b(overlay|scrim|backdrop)\b/.test(norm))
+        return 80;
+    if (/\bmuted\b/.test(norm) || /\bsubtle\b/.test(norm))
+        return 76;
+    return 70;
+}
+function semanticConfidenceForRole(role, norm) {
+    if (role === 'textColor')
+        return semanticConfidenceTextColor(norm);
+    if (role === 'stroke')
+        return semanticConfidenceStroke(norm);
+    return semanticConfidenceFill(norm);
+}
+/**
+ * Blend perceptual + semantic (industry-style weighted score).
+ * Perceptual dominates; semantic breaks ties and down-ranks wrong-role tokens.
+ */
+const CONF_WEIGHT_PERCEPTUAL = 0.62;
+const CONF_WEIGHT_SEMANTIC = 0.38;
+function blendAliasConfidence(perceptual, semantic) {
+    const v = CONF_WEIGHT_PERCEPTUAL * perceptual + CONF_WEIGHT_SEMANTIC * semantic;
+    return Math.min(100, Math.max(0, Math.round(v)));
+}
+/** Alias suggestions returned to UI (inline row shows the first only) */
+const CLOSEST_ALIAS_MATCH_COUNT = 1;
+/**
+ * Text glyph color aliases: paths under `text`, `text/inverse`, emphasis steps, etc.
+ * Excludes border-only container tokens (see border bucket).
+ */
+function inTextAliasBucket(norm) {
+    if (/\bborder\b/.test(norm) && !/\btext\b/.test(norm))
+        return false;
+    if (/\btext\b/.test(norm))
+        return true;
+    if (/(highest|high|med|medium|low)\s+emphasis/.test(norm))
+        return true;
+    if (/\bdisabled\b/.test(norm) && !/\bborder\b/.test(norm))
+        return true;
+    return false;
+}
+/**
+ * Stroke aliases: paths with `border` (e.g. container/border/tertiary) or explicit `stroke`.
+ */
+function inBorderAliasBucket(norm) {
+    return /\bborder\b/.test(norm) || /\bstroke\b/.test(norm);
+}
+function scoreAliasEntries(targetLab, role, entries, includeIf) {
+    const scored = [];
+    for (const entry of entries) {
+        const norm = normalizeTokenLabel(entry);
+        if (includeIf !== null && !includeIf(norm))
+            continue;
+        if (role === 'fill' && isExcludedAliasForFill(norm))
+            continue;
         let bestDist = Infinity, bestHex = '';
         for (const mode of entry.modes) {
             const d = deltaE76(targetLab, hexToLab(mode.hex));
@@ -558,17 +695,59 @@ async function getClosestColorMatches(rawHex) {
                 bestHex = mode.hex;
             }
         }
-        if (bestHex) {
-            candidates.push({
-                variableId: entry.variableId, variableName: entry.variableName,
-                collectionName: entry.collectionName, variableModes: entry.modes,
-                hexValue: bestHex,
-                distanceScore: Math.round(bestDist * 100) / 100,
-            });
-        }
+        if (!bestHex)
+            continue;
+        const distanceScore = Math.round(bestDist * 100) / 100;
+        const perceptual = perceptualConfidenceFromDeltaE76(bestDist);
+        const semantic = semanticConfidenceForRole(role, norm);
+        const confidence = blendAliasConfidence(perceptual, semantic);
+        const match = {
+            variableId: entry.variableId, variableName: entry.variableName,
+            collectionName: entry.collectionName, variableModes: entry.modes,
+            hexValue: bestHex,
+            distanceScore,
+            confidence,
+        };
+        scored.push({ match, confidence, distanceScore });
     }
-    candidates.sort((a, b) => a.distanceScore - b.distanceScore);
-    return candidates.slice(0, 5);
+    scored.sort((a, b) => {
+        if (b.confidence !== a.confidence)
+            return b.confidence - a.confidence;
+        return a.distanceScore - b.distanceScore;
+    });
+    return scored;
+}
+function sliceTopMatches(scored, n) {
+    return scored.slice(0, n).map(s => s.match);
+}
+async function getClosestColorMatches(rawHex, role) {
+    if (!cachedVariableColorIndex)
+        cachedVariableColorIndex = await buildVariableColorIndex();
+    const targetLab = hexToLab(rawHex);
+    const entries = cachedVariableColorIndex;
+    const n = CLOSEST_ALIAS_MATCH_COUNT;
+    if (role === 'fill') {
+        return sliceTopMatches(scoreAliasEntries(targetLab, role, entries, null), n);
+    }
+    if (role === 'textColor') {
+        const inBucket = scoreAliasEntries(targetLab, role, entries, inTextAliasBucket);
+        // Always prefer text-bucket aliases when any exist — do not fall through to “outside”
+        // just because confidence is modest (perceptual closeness to tertiary text still wins).
+        if (inBucket.length > 0)
+            return sliceTopMatches(inBucket, n);
+        const outside = scoreAliasEntries(targetLab, role, entries, norm => !inTextAliasBucket(norm));
+        return sliceTopMatches(outside, n);
+    }
+    if (role === 'stroke') {
+        const inBucket = scoreAliasEntries(targetLab, role, entries, inBorderAliasBucket);
+        // Same as text: border/stroke bucket first by sorted confidence, never swap in
+        // background/divider tokens just because border aliases scored below an arbitrary threshold.
+        if (inBucket.length > 0)
+            return sliceTopMatches(inBucket, n);
+        const outside = scoreAliasEntries(targetLab, role, entries, norm => !inBorderAliasBucket(norm));
+        return sliceTopMatches(outside, n);
+    }
+    return sliceTopMatches(scoreAliasEntries(targetLab, role, entries, null), n);
 }
 function fontStyleToWeight(style) {
     const s = style.toLowerCase();
@@ -632,8 +811,8 @@ figma.ui.onmessage = async (msg) => {
         const reply = (payload) => figma.ui.postMessage(Object.assign({ type: 'closest-match-result', matchSeq }, payload));
         try {
             let matches = [];
-            if (property === 'fill' || property === 'stroke') {
-                matches = await getClosestColorMatches(rawValue);
+            if (property === 'fill' || property === 'stroke' || property === 'textColor') {
+                matches = await getClosestColorMatches(rawValue, property);
             }
             else if (property === 'text') {
                 const parts = rawValue.split('/');
@@ -700,6 +879,7 @@ figma.ui.onmessage = async (msg) => {
                 const scene = node;
                 switch (property) {
                     case 'fill':
+                    case 'textColor':
                         if ('fillStyleId' in scene)
                             scene.fillStyleId = styleId;
                         break;
@@ -739,7 +919,7 @@ figma.ui.onmessage = async (msg) => {
             }
             try {
                 const scene = node;
-                if (property === 'fill' && 'fills' in scene) {
+                if ((property === 'fill' || property === 'textColor') && 'fills' in scene) {
                     const fills = [...scene.fills];
                     for (let i = 0; i < fills.length; i++) {
                         if (fills[i].type === 'SOLID') {

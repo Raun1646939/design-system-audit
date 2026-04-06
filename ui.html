@@ -501,6 +501,87 @@
     background: color-mix(in srgb, var(--accent) 15%, var(--surface));
   }
 
+  .issue-wrapper.issue-wrapper--match-open {
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+
+  /* ── Inline closest alias (replaces bottom sheet for color rows) ─────────── */
+
+  .issue-inline-match {
+    display: none;
+    border-top: 1px solid var(--row-border);
+    background: color-mix(in srgb, var(--surface) 88%, var(--bg));
+    padding: 8px 12px 10px;
+    margin-top: 2px;
+  }
+
+  /* Unify selected tint through the expanded inline block */
+  .issue-wrapper.issue-wrapper--selected .issue-inline-match {
+    background: transparent;
+    border-top-color: color-mix(in srgb, var(--accent) 22%, var(--row-border));
+  }
+
+  .issue-inline-match.issue-inline-match--visible {
+    display: block;
+  }
+
+  .inline-match-loading,
+  .inline-match-msg {
+    font-size: 10px;
+    color: var(--text-muted);
+    letter-spacing: 0.04em;
+  }
+
+  .inline-match-msg--err { color: var(--destructive); line-height: 1.45; }
+
+  .inline-match-error-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+  }
+
+  .inline-match-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: nowrap;
+  }
+
+  .inline-match-row .match-info {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .inline-match-subline {
+    display: block;
+    margin-top: 2px;
+  }
+
+  .inline-match-pct {
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+  }
+
+  .inline-match-subline .inline-match-pct.dist-exact  { color: var(--success); }
+  .inline-match-subline .inline-match-pct.dist-close { color: var(--text-primary); }
+  .inline-match-subline .inline-match-pct.dist-approx { color: var(--text-secondary); }
+
+  .inline-match-subline .inline-match-rest {
+    color: var(--text-muted);
+    letter-spacing: 0.06em;
+  }
+
+  .inline-match-label {
+    font-size: 9px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+  }
+
   .issue-line1 {
     display: flex;
     align-items: center;
@@ -574,6 +655,7 @@
   .tag-fill    { color: #E8A87C; background: color-mix(in srgb, #E8A87C 12%, transparent); }
   .tag-stroke  { color: #7EC8E3; background: color-mix(in srgb, #7EC8E3 12%, transparent); }
   .tag-text    { color: #4ADE80; background: color-mix(in srgb, #4ADE80 12%, transparent); }
+  .tag-typography { color: #A7F3D0; background: color-mix(in srgb, #A7F3D0 10%, transparent); }
   .tag-spacing { color: #FCD34D; background: color-mix(in srgb, #FCD34D 12%, transparent); }
   .tag-radius  { color: #93C5FD; background: color-mix(in srgb, #93C5FD 12%, transparent); }
   .tag-opacity { color: #9CA3AF; background: color-mix(in srgb, #9CA3AF 12%, transparent); }
@@ -602,14 +684,14 @@
 
   .issue-action:hover { opacity: 1; }
 
-  /* ── Match drawer ────────────────────────────────────────────────────────── */
+  /* ── Match drawer (typography / TYPE tab only — color uses inline expand) ─ */
 
   #match-drawer {
     position: fixed;
     bottom: 0;
     left: 0;
     right: 0;
-    max-height: 240px;
+    max-height: 220px;
     background: var(--surface);
     border-top: 1px solid var(--border);
     transform: translateY(100%);
@@ -696,7 +778,7 @@
     text-overflow: ellipsis;
   }
 
-  .match-dist { font-size: 10px; flex-shrink: 0; }
+  .match-dist { font-size: 10px; flex-shrink: 0; min-width: 2.25rem; text-align: right; font-variant-numeric: tabular-nums; }
   .dist-exact  { color: var(--success); }
   .dist-close  { color: var(--text-primary); }
   .dist-approx { color: var(--text-secondary); }
@@ -799,7 +881,7 @@
   <div id="match-drawer" role="dialog" aria-label="Closest matches">
     <div id="drawer-header">
       <div class="drawer-title-group">
-        <span class="section-label">CLOSEST MATCHES</span>
+        <span class="section-label">CLOSEST TEXT STYLES</span>
         <span id="drawer-subtitle"></span>
       </div>
       <button id="drawer-close" aria-label="Close drawer">✕</button>
@@ -812,7 +894,6 @@
 
   const TABS = [
     { key: 'fills',   label: 'COLORS'  },
-    { key: 'strokes', label: 'STROKES' },
     { key: 'text',    label: 'TEXT'    },
     { key: 'spacing', label: 'SPACING' },
     { key: 'radius',  label: 'RADIUS'  },
@@ -821,9 +902,10 @@
   ];
 
   const TAG_CONFIG = {
-    fill:    { label: 'Fill',    cls: 'tag-fill'    },
-    stroke:  { label: 'Stroke',  cls: 'tag-stroke'  },
-    text:    { label: 'Text',    cls: 'tag-text'     },
+    fill:      { label: 'FILL',    cls: 'tag-fill'    },
+    textColor: { label: 'TEXT',    cls: 'tag-text'    },
+    stroke:    { label: 'STROKE',  cls: 'tag-stroke'  },
+    text:      { label: 'TYPE',    cls: 'tag-typography' },
     spacing: { label: 'Spacing', cls: 'tag-spacing'  },
     radius:  { label: 'Radius',  cls: 'tag-radius'   },
     opacity: { label: 'Opacity', cls: 'tag-opacity'  },
@@ -844,7 +926,9 @@
   let activeTabKey          = null;
   let currentDrawerGroup    = null;
   let currentDrawerWrapper  = null;
-  /** Monotonic id so stale closest-match responses are ignored after opening another drawer. */
+  /** Pending inline color match: { wrapper, group, seq } */
+  let pendingMatchTarget    = null;
+  /** Monotonic id so stale closest-match responses are ignored. */
   let lastMatchRequestSeq   = 0;
   let hasSelection          = false;
   let firstCategoryReceived = false;
@@ -872,6 +956,15 @@
     }
   }
 
+  function collapseAllInlineMatches() {
+    document.querySelectorAll('.issue-inline-match--visible').forEach(p => {
+      p.classList.remove('issue-inline-match--visible');
+      p.innerHTML = '';
+    });
+    document.querySelectorAll('.issue-wrapper--match-open').forEach(w => w.classList.remove('issue-wrapper--match-open'));
+    pendingMatchTarget = null;
+  }
+
   // ── Helpers ────────────────────────────────────────────────────────────────
 
   function escapeHtml(s) {
@@ -880,8 +973,20 @@
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
+  /** Figma sometimes throws long bridge/timeout strings; keep inline panel readable */
+  function formatClosestMatchError(err) {
+    const raw = String(err || '');
+    if (/establish connection to figma|connection to figma after \d+/i.test(raw)) {
+      return 'Figma connection timed out. Check network, then try again.';
+    }
+    if (/network|offline|timed?\s*out/i.test(raw)) {
+      return 'Network or timeout issue. Try again in a moment.';
+    }
+    return raw;
+  }
+
   function isColorProp(property) {
-    return property === 'fill' || property === 'stroke';
+    return property === 'fill' || property === 'stroke' || property === 'textColor';
   }
 
   function displayValue(group) {
@@ -1219,6 +1324,8 @@
   }
 
   function activateTab(key) {
+    collapseAllInlineMatches();
+    closeDrawer();
     activeTabKey = key;
     document.querySelectorAll('.tab').forEach(t => {
       const on = t.dataset.tab === key;
@@ -1285,11 +1392,11 @@
       line1.appendChild(cntEl);
     }
 
-    // Zone B: → button — navigates to the layer AND opens match drawer
+    // Zone B: → — navigate + inline alias (colors) or bottom drawer (typography)
     const btn = document.createElement('button');
     btn.className = 'issue-action';
     btn.textContent = '→';
-    btn.title = 'Go to layer & find closest match';
+    btn.title = color ? 'Go to layer & show closest alias' : 'Go to layer & closest text styles';
     btn.addEventListener('click', e => {
       e.stopPropagation();
       setSelectedIssueRow(wrapper);
@@ -1299,7 +1406,8 @@
       wrapper.classList.add('nav-flash');
       setTimeout(() => wrapper.classList.remove('nav-flash'), 300);
       line2.innerHTML = '<span class="nav-confirm" style="color:var(--text-muted)">…</span>';
-      openDrawer(group, wrapper);
+      if (color) requestInlineClosestMatch(group, wrapper);
+      else openDrawer(group, wrapper);
     });
     line1.appendChild(btn);
 
@@ -1327,7 +1435,19 @@
     setLine2Default();
     wrapper.appendChild(line2);
 
+    if (color) {
+      const inline = document.createElement('div');
+      inline.className = 'issue-inline-match';
+      inline.setAttribute('aria-live', 'polite');
+      wrapper.appendChild(inline);
+    }
+
     wrapper.addEventListener('click', () => {
+      let closedInlineOnly = false;
+      if (color && wrapper.classList.contains('issue-wrapper--match-open')) {
+        collapseAllInlineMatches();
+        closedInlineOnly = true;
+      }
       setSelectedIssueRow(wrapper);
       const nodeIds = group.layers.map(l => l.nodeId);
       pendingNav = { line2, setLine2Default };
@@ -1342,6 +1462,10 @@
       hold.style.color = 'var(--text-muted)';
       hold.textContent = '…';
       line2.appendChild(hold);
+
+      if (color && !closedInlineOnly) {
+        requestInlineClosestMatch(group, wrapper);
+      }
     });
 
     return wrapper;
@@ -1425,6 +1549,9 @@
   }
 
   function fadeOutRow(wrapper) {
+    if (pendingMatchTarget && pendingMatchTarget.wrapper === wrapper) {
+      pendingMatchTarget = null;
+    }
     if (wrapper === selectedIssueWrapper) clearSelectedIssueRow();
     wrapper.style.opacity = '0';
     setTimeout(() => {
@@ -1433,11 +1560,50 @@
     }, 300);
   }
 
-  // ── Drawer ─────────────────────────────────────────────────────────────────
+  // ── Closest match: inline (colors) + bottom drawer (typography only) ───────
+
+  function requestInlineClosestMatch(group, wrapper) {
+    closeDrawer();
+    closeLibraryCard();
+    closePageCard();
+
+    document.querySelectorAll('.issue-wrapper--match-open').forEach(w => {
+      if (w !== wrapper) {
+        w.classList.remove('issue-wrapper--match-open');
+        const p = w.querySelector('.issue-inline-match');
+        if (p) {
+          p.classList.remove('issue-inline-match--visible');
+          p.innerHTML = '';
+        }
+      }
+    });
+
+    const panel = wrapper.querySelector('.issue-inline-match');
+    if (!panel) return;
+
+    wrapper.classList.add('issue-wrapper--match-open');
+    panel.classList.add('issue-inline-match--visible');
+    panel.innerHTML = '<div class="inline-match-loading">Loading match…</div>';
+
+    lastMatchRequestSeq++;
+    const seq = lastMatchRequestSeq;
+    pendingMatchTarget = { wrapper, group, seq };
+
+    parent.postMessage({
+      pluginMessage: {
+        type: 'get-closest-match',
+        property: group.property,
+        rawValue: group.rawValue,
+        matchSeq: seq,
+      },
+    }, '*');
+    recalcPadding();
+  }
 
   function openDrawer(group, wrapper) {
     closeLibraryCard();
     closePageCard();
+    collapseAllInlineMatches();
     recalcPadding();
 
     currentDrawerGroup   = group;
@@ -1448,9 +1614,10 @@
       '<div class="drawer-loading">Loading matches…</div>';
     document.getElementById('match-drawer').classList.add('open');
 
-    const matchSeq = ++lastMatchRequestSeq;
+    lastMatchRequestSeq++;
+    const seq = lastMatchRequestSeq;
     parent.postMessage({
-      pluginMessage: { type: 'get-closest-match', property: group.property, rawValue: group.rawValue, matchSeq }
+      pluginMessage: { type: 'get-closest-match', property: group.property, rawValue: group.rawValue, matchSeq: seq },
     }, '*');
   }
 
@@ -1466,11 +1633,127 @@
     const drawer = document.getElementById('match-drawer');
     if (drawer.classList.contains('open') && !drawer.contains(e.target)) closeDrawer();
 
+    if (!e.target.closest('.issue-wrapper')) {
+      collapseAllInlineMatches();
+    }
+
     const pageCardEl = document.getElementById('page-card');
     if (pageCardEl.classList.contains('open') && !pageCardEl.contains(e.target)) {
       closePageCard();
     }
   });
+
+  function renderInlineMatch(wrapper, group, matches, error) {
+    const panel = wrapper.querySelector('.issue-inline-match');
+    if (!panel) return;
+
+    if (error) {
+      panel.innerHTML = '';
+      const lab = document.createElement('div');
+      lab.className = 'inline-match-label';
+      lab.textContent = 'CLOSEST ALIAS';
+      panel.appendChild(lab);
+      const msgEl = document.createElement('div');
+      msgEl.className = 'inline-match-msg inline-match-msg--err';
+      const friendly = formatClosestMatchError(error);
+      msgEl.textContent = friendly;
+      const raw = String(error || '');
+      if (friendly !== raw && raw.length > 0) {
+        msgEl.title = raw;
+      }
+      panel.appendChild(msgEl);
+      const actions = document.createElement('div');
+      actions.className = 'inline-match-error-actions';
+      const retryBtn = document.createElement('button');
+      retryBtn.type = 'button';
+      retryBtn.className = 'match-apply';
+      retryBtn.textContent = 'RETRY';
+      retryBtn.addEventListener('click', ev => {
+        ev.stopPropagation();
+        requestInlineClosestMatch(group, wrapper);
+      });
+      actions.appendChild(retryBtn);
+      panel.appendChild(actions);
+      recalcPadding();
+      return;
+    }
+    if (!matches || matches.length === 0) {
+      panel.innerHTML = '<div class="inline-match-msg">No alias token match in library</div>';
+      recalcPadding();
+      return;
+    }
+
+    const match = matches[0];
+    panel.innerHTML = '';
+
+    const lab = document.createElement('div');
+    lab.className = 'inline-match-label';
+    lab.textContent = 'CLOSEST ALIAS';
+    panel.appendChild(lab);
+
+    const row = document.createElement('div');
+    row.className = 'inline-match-row';
+
+    /* Single swatch = resolved alias color for best-matching mode (same as issue-row swatch) */
+    if (match.hexValue) {
+      const sw = document.createElement('span');
+      sw.className = 'swatch';
+      sw.style.background = `#${match.hexValue}`;
+      sw.title = (match.variableModes && match.variableModes.length > 1)
+        ? 'Resolved color used for match (best mode vs rogue hex)'
+        : '';
+      row.appendChild(sw);
+    }
+
+    const info = document.createElement('div');
+    info.className = 'match-info';
+    const nameEl = document.createElement('span');
+    nameEl.className = 'match-name';
+    nameEl.textContent = match.variableName || match.styleName || '—';
+    info.appendChild(nameEl);
+
+    const subEl = document.createElement('span');
+    subEl.className = 'match-sub inline-match-subline';
+    let pctCls = 'dist-approx';
+    if (match.confidence !== undefined) {
+      const c = Math.round(match.confidence);
+      pctCls = c >= 76 ? 'dist-exact' : c >= 56 ? 'dist-close' : 'dist-approx';
+      const pctSpan = document.createElement('span');
+      pctSpan.className = 'inline-match-pct ' + pctCls;
+      pctSpan.textContent = c + '%';
+      subEl.appendChild(pctSpan);
+      const de = match.distanceScore !== undefined ? match.distanceScore : '—';
+      subEl.title = 'Blended confidence (ΔE + naming fit). ΔE ≈ ' + de;
+    } else {
+      const pctSpan = document.createElement('span');
+      pctSpan.className = 'inline-match-pct dist-approx';
+      pctSpan.textContent = '—%';
+      subEl.appendChild(pctSpan);
+    }
+    const rest = document.createElement('span');
+    rest.className = 'inline-match-rest';
+    rest.textContent = ' CLOSEST MATCH';
+    subEl.appendChild(rest);
+    info.appendChild(subEl);
+    row.appendChild(info);
+
+    const applyBtn = document.createElement('button');
+    applyBtn.className = 'match-apply';
+    applyBtn.textContent = 'APPLY';
+    applyBtn.addEventListener('click', ev => {
+      ev.stopPropagation();
+      const pluginMessage = match.variableId
+        ? { type: 'apply-variable', nodeIds: group.layers.map(l => l.nodeId), property: group.property, variableId: match.variableId }
+        : { type: 'apply-style', nodeIds: group.layers.map(l => l.nodeId), property: group.property, styleId: match.styleId };
+      parent.postMessage({ pluginMessage }, '*');
+      collapseAllInlineMatches();
+      fadeOutRow(wrapper);
+    });
+    row.appendChild(applyBtn);
+
+    panel.appendChild(row);
+    recalcPadding();
+  }
 
   function renderDrawerMatches(matches, error) {
     const container = document.getElementById('drawer-matches');
@@ -1480,11 +1763,7 @@
       return;
     }
     if (!matches || matches.length === 0) {
-      const emptyMsg =
-        currentDrawerGroup && isColorProp(currentDrawerGroup.property)
-          ? 'No close alias color tokens in the library'
-          : 'No matches found in connected library';
-      container.innerHTML = `<div class="drawer-empty">${emptyMsg}</div>`;
+      container.innerHTML = '<div class="drawer-empty">No text styles found in library</div>';
       return;
     }
 
@@ -1531,9 +1810,19 @@
       info.appendChild(subEl);
       row.appendChild(info);
 
-      // Distance label
-      let distLabel, distCls;
-      if (match.distanceScore !== undefined) {
+      // Confidence % (alias colors) or legacy distance / typography score
+      let distLabel, distCls, distTitle = '';
+      if (match.variableId && match.confidence !== undefined) {
+        const c = Math.round(match.confidence);
+        distLabel = c + '%';
+        distCls =
+          c >= 76 ? 'dist-exact' :
+          c >= 56 ? 'dist-close' :
+          'dist-approx';
+        const de = match.distanceScore !== undefined ? match.distanceScore : '—';
+        distTitle =
+          'Confidence blends perceptual match (ΔE) with how well the token name fits this layer (fill / text / stroke). Lower ΔE is better. ΔE ≈ ' + de;
+      } else if (match.distanceScore !== undefined) {
         if      (match.distanceScore < 1)  { distLabel = 'exact';  distCls = 'dist-exact';  }
         else if (match.distanceScore < 10) { distLabel = 'close';  distCls = 'dist-close';  }
         else                               { distLabel = 'approx'; distCls = 'dist-approx'; }
@@ -1546,6 +1835,7 @@
       const distEl = document.createElement('span');
       distEl.className = `match-dist ${distCls}`;
       distEl.textContent = distLabel;
+      if (distTitle) distEl.title = distTitle;
       row.appendChild(distEl);
 
       // Apply button — capture references before closeDrawer() clears them
@@ -1688,6 +1978,18 @@
 
     } else if (msg.type === 'closest-match-result') {
       if (msg.matchSeq !== lastMatchRequestSeq) return;
+      if (pendingMatchTarget && pendingMatchTarget.seq === msg.matchSeq) {
+        const { wrapper, group } = pendingMatchTarget;
+        pendingMatchTarget = null;
+        if (wrapper && wrapper.isConnected) {
+          renderInlineMatch(wrapper, group, msg.matches, msg.error || null);
+        }
+        return;
+      }
+      const drawerEl = document.getElementById('match-drawer');
+      if (!drawerEl.classList.contains('open') || !currentDrawerGroup) {
+        return;
+      }
       renderDrawerMatches(msg.matches, msg.error || null);
 
     } else if (msg.type === 'apply-style-result') {
