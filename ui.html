@@ -573,13 +573,27 @@
     letter-spacing: 0.06em;
   }
 
-  .inline-match-label {
-    font-size: 9px;
-    font-weight: 500;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
+  /* Arrow from rogue swatch (line1) down to alias swatch — column aligns with .swatch (12px) + row gap */
+  .inline-match-arrow-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px;
+    margin-bottom: 4px;
+  }
+
+  .inline-match-arrow-row__slot {
+    width: 12px;
+    flex-shrink: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
     color: var(--text-muted);
-    margin-bottom: 6px;
+    opacity: 0.85;
+  }
+
+  .inline-match-arrow-row__slot svg {
+    display: block;
   }
 
   .issue-line1 {
@@ -1649,10 +1663,6 @@
 
     if (error) {
       panel.innerHTML = '';
-      const lab = document.createElement('div');
-      lab.className = 'inline-match-label';
-      lab.textContent = 'CLOSEST ALIAS';
-      panel.appendChild(lab);
       const msgEl = document.createElement('div');
       msgEl.className = 'inline-match-msg inline-match-msg--err';
       const friendly = formatClosestMatchError(error);
@@ -1686,10 +1696,14 @@
     const match = matches[0];
     panel.innerHTML = '';
 
-    const lab = document.createElement('div');
-    lab.className = 'inline-match-label';
-    lab.textContent = 'CLOSEST ALIAS';
-    panel.appendChild(lab);
+    const arrowRow = document.createElement('div');
+    arrowRow.className = 'inline-match-arrow-row';
+    arrowRow.setAttribute('aria-hidden', 'true');
+    const arrowSlot = document.createElement('span');
+    arrowSlot.className = 'inline-match-arrow-row__slot';
+    arrowSlot.innerHTML = '<svg width="8" height="14" viewBox="0 0 8 14" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 1v9.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M1 8.5l3 3 3-3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
+    arrowRow.appendChild(arrowSlot);
+    panel.appendChild(arrowRow);
 
     const row = document.createElement('div');
     row.className = 'inline-match-row';
