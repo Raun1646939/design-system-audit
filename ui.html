@@ -67,10 +67,12 @@
     letter-spacing: 0.08em;
     text-transform: none;
     color: #E8E8E8;
+    max-width: 100%;
+    line-height: 1.25;
   }
 
   .header-title.header-title--caps {
-    letter-spacing: 0.14em;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
   }
 
@@ -359,7 +361,7 @@
     font-family: var(--font);
   }
 
-  /* RUN (bottom bar) */
+  /* SCAN (bottom bar) */
   #btn-run {
     flex-shrink: 0;
     min-width: 0;
@@ -533,6 +535,16 @@
   }
 
   .inline-match-msg--err { color: var(--destructive); line-height: 1.45; }
+  .match-no-confident-reason {
+    font-size: 10px;
+    color: #FF6B6B;
+    line-height: 1.4;
+  }
+  .issue-inline-match .inline-match-row + .inline-match-row {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid var(--row-border);
+  }
 
   .inline-match-error-actions {
     display: flex;
@@ -793,6 +805,15 @@
   }
 
   .match-dist { font-size: 10px; flex-shrink: 0; min-width: 2.25rem; text-align: right; font-variant-numeric: tabular-nums; }
+  .match-row--color-first { border-top: 1px solid #2A2A2A; }
+  .match-dist--color-match {
+    font-size: 9px;
+    text-transform: uppercase;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: #888888;
+    letter-spacing: 0.04em;
+    font-variant-numeric: normal;
+  }
   .dist-exact  { color: var(--success); }
   .dist-close  { color: var(--text-primary); }
   .dist-approx { color: var(--text-secondary); }
@@ -822,7 +843,7 @@
 <body>
 
   <header id="header">
-    <span class="header-title header-title--caps" id="header-wordmark">RUN A SCAN</span>
+    <span class="header-title header-title--caps" id="header-wordmark">BE TOKENSURE — RUN A SCAN</span>
   </header>
 
   <div id="main-workspace">
@@ -883,7 +904,7 @@
               <path d="M11.4165 4.16322L16.419 7.49817C19.473 9.53419 21 10.5522 21 12C21 13.4478 19.473 14.4658 16.419 16.5019L11.4165 19.8368C7.7137 22.3054 5.86229 23.5396 4.43353 22.775C3.00476 22.0103 3.00476 19.7852 3.00476 15.335V8.66505C3.00476 4.21482 3.00476 1.9897 4.43353 1.22505C5.86229 0.460393 7.71371 1.69467 11.4165 4.16322Z" fill="currentColor"/>
             </svg>
           </span>
-          <span class="btn-run-label">RUN</span>
+          <span class="btn-run-label">SCAN</span>
         </button>
       </div>
 
@@ -948,8 +969,9 @@
   let firstCategoryReceived = false;
   let currentPageId         = null;
   let initPayloadCache      = null;
-  let headerLayerCount      = null;
-  let headerIssueCount     = null;
+  let headerLayerCount       = null;
+  let headerIssueCount       = null;
+  let headerTokensurePercent = null;
   let pendingNav            = null;
   let selectedIssueWrapper  = null;
 
@@ -1012,7 +1034,7 @@
     if (!el) return;
     if (appState === 'prescan') {
       el.classList.add('header-title--caps');
-      el.textContent = 'RUN A SCAN';
+      el.textContent = 'BE TOKENSURE — RUN A SCAN';
       return;
     }
     el.classList.remove('header-title--caps');
@@ -1022,8 +1044,8 @@
         : '…';
       return;
     }
-    if (appState === 'results' && headerLayerCount != null && headerIssueCount != null) {
-      el.textContent = `${headerLayerCount} layers • ${headerIssueCount} issue${headerIssueCount !== 1 ? 's' : ''}`;
+    if (appState === 'results' && headerTokensurePercent != null) {
+      el.textContent = `${headerTokensurePercent}% TOKENSURE`;
     }
   }
 
@@ -1042,7 +1064,7 @@
     const label = btn.querySelector('.btn-run-label');
     btn.classList.toggle('scanning', isScanning);
     btn.disabled = isScanning;
-    label.textContent = isScanning ? '...' : 'RUN';
+    label.textContent = isScanning ? '...' : 'SCAN';
     updateHeaderTitle();
     recalcPadding();
   }
@@ -1256,8 +1278,9 @@
     bar.classList.add('hidden');
     content.classList.add('hidden');
     appState = 'prescan';
-    headerLayerCount  = null;
-    headerIssueCount = null;
+    headerLayerCount       = null;
+    headerIssueCount       = null;
+    headerTokensurePercent = null;
     const pb = document.getElementById('scan-progress-bar');
     pb.classList.remove('running');
     document.getElementById('scan-progress').classList.add('hidden');
@@ -1265,11 +1288,12 @@
     recalcPadding();
   }
 
-  // ── RUN button ─────────────────────────────────────────────────────────────
+  // ── SCAN button ────────────────────────────────────────────────────────────
 
   document.getElementById('btn-run').addEventListener('click', () => {
-    headerLayerCount  = null;
-    headerIssueCount = null;
+    headerLayerCount       = null;
+    headerIssueCount       = null;
+    headerTokensurePercent = null;
     setState('scanning');
     initTabBarScanning();
     const scope = hasSelection ? 'selection' : 'page';
@@ -1657,7 +1681,7 @@
     }
   });
 
-  function renderInlineMatch(wrapper, group, matches, error) {
+  function renderInlineMatch(wrapper, group, matches, error, reason) {
     const panel = wrapper.querySelector('.issue-inline-match');
     if (!panel) return;
 
@@ -1688,12 +1712,19 @@
       return;
     }
     if (!matches || matches.length === 0) {
-      panel.innerHTML = '<div class="inline-match-msg">No alias token match in library</div>';
+      if (reason) {
+        panel.innerHTML = '';
+        const el = document.createElement('div');
+        el.className = 'match-no-confident-reason';
+        el.textContent = reason;
+        panel.appendChild(el);
+      } else {
+        panel.innerHTML = '<div class="inline-match-msg">No alias token match in library</div>';
+      }
       recalcPadding();
       return;
     }
 
-    const match = matches[0];
     panel.innerHTML = '';
 
     const arrowRow = document.createElement('div');
@@ -1705,71 +1736,72 @@
     arrowRow.appendChild(arrowSlot);
     panel.appendChild(arrowRow);
 
-    const row = document.createElement('div');
-    row.className = 'inline-match-row';
+    const list = Array.isArray(matches) ? matches.slice(0, 3) : [];
+    list.forEach(match => {
+      const row = document.createElement('div');
+      row.className = 'inline-match-row';
 
-    /* Single swatch = resolved alias color for best-matching mode (same as issue-row swatch) */
-    if (match.hexValue) {
-      const sw = document.createElement('span');
-      sw.className = 'swatch';
-      sw.style.background = `#${match.hexValue}`;
-      sw.title = (match.variableModes && match.variableModes.length > 1)
-        ? 'Resolved color used for match (best mode vs rogue hex)'
-        : '';
-      row.appendChild(sw);
-    }
+      if (match.hexValue) {
+        const sw = document.createElement('span');
+        sw.className = 'swatch';
+        sw.style.background = `#${match.hexValue}`;
+        sw.title = (match.variableModes && match.variableModes.length > 1)
+          ? 'Resolved color used for match (best mode vs rogue hex)'
+          : '';
+        row.appendChild(sw);
+      }
 
-    const info = document.createElement('div');
-    info.className = 'match-info';
-    const nameEl = document.createElement('span');
-    nameEl.className = 'match-name';
-    nameEl.textContent = match.variableName || match.styleName || '—';
-    info.appendChild(nameEl);
+      const info = document.createElement('div');
+      info.className = 'match-info';
+      const nameEl = document.createElement('span');
+      nameEl.className = 'match-name';
+      nameEl.textContent = match.variableName || match.styleName || '—';
+      info.appendChild(nameEl);
 
-    const subEl = document.createElement('span');
-    subEl.className = 'match-sub inline-match-subline';
-    let pctCls = 'dist-approx';
-    if (match.confidence !== undefined) {
-      const c = Math.round(match.confidence);
-      pctCls = c >= 76 ? 'dist-exact' : c >= 56 ? 'dist-close' : 'dist-approx';
-      const pctSpan = document.createElement('span');
-      pctSpan.className = 'inline-match-pct ' + pctCls;
-      pctSpan.textContent = c + '%';
-      subEl.appendChild(pctSpan);
-      const de = match.distanceScore !== undefined ? match.distanceScore : '—';
-      subEl.title = 'Blended confidence (ΔE + naming fit). ΔE ≈ ' + de;
-    } else {
-      const pctSpan = document.createElement('span');
-      pctSpan.className = 'inline-match-pct dist-approx';
-      pctSpan.textContent = '—%';
-      subEl.appendChild(pctSpan);
-    }
-    const rest = document.createElement('span');
-    rest.className = 'inline-match-rest';
-    rest.textContent = ' CLOSEST MATCH';
-    subEl.appendChild(rest);
-    info.appendChild(subEl);
-    row.appendChild(info);
+      const subEl = document.createElement('span');
+      subEl.className = 'match-sub inline-match-subline';
+      if (match.confidence !== undefined) {
+        const c = Math.round(match.confidence);
+        const pctCls = c >= 76 ? 'dist-exact' : c >= 56 ? 'dist-close' : 'dist-approx';
+        const pctSpan = document.createElement('span');
+        pctSpan.className = 'inline-match-pct ' + pctCls;
+        pctSpan.textContent = c + '%';
+        subEl.appendChild(pctSpan);
+        const de = match.distanceScore !== undefined ? match.distanceScore : '—';
+        subEl.title = 'Blended confidence (ΔE + naming fit). ΔE ≈ ' + de;
+      } else {
+        const pctSpan = document.createElement('span');
+        pctSpan.className = 'inline-match-pct dist-approx';
+        pctSpan.textContent = '—%';
+        subEl.appendChild(pctSpan);
+      }
+      const rest = document.createElement('span');
+      rest.className = 'inline-match-rest';
+      rest.textContent = ' CLOSEST MATCH';
+      subEl.appendChild(rest);
+      info.appendChild(subEl);
+      row.appendChild(info);
 
-    const applyBtn = document.createElement('button');
-    applyBtn.className = 'match-apply';
-    applyBtn.textContent = 'APPLY';
-    applyBtn.addEventListener('click', ev => {
-      ev.stopPropagation();
-      const pluginMessage = match.variableId
-        ? { type: 'apply-variable', nodeIds: group.layers.map(l => l.nodeId), property: group.property, variableId: match.variableId }
-        : { type: 'apply-style', nodeIds: group.layers.map(l => l.nodeId), property: group.property, styleId: match.styleId };
-      parent.postMessage({ pluginMessage }, '*');
-      collapseAllInlineMatches();
-      fadeOutRow(wrapper);
+      const applyBtn = document.createElement('button');
+      applyBtn.className = 'match-apply';
+      applyBtn.textContent = 'APPLY';
+      applyBtn.addEventListener('click', ev => {
+        ev.stopPropagation();
+        const pluginMessage = match.variableId
+          ? { type: 'apply-variable', nodeIds: group.layers.map(l => l.nodeId), property: group.property, variableId: match.variableId }
+          : { type: 'apply-style', nodeIds: group.layers.map(l => l.nodeId), property: group.property, styleId: match.styleId };
+        parent.postMessage({ pluginMessage }, '*');
+        collapseAllInlineMatches();
+        fadeOutRow(wrapper);
+      });
+      row.appendChild(applyBtn);
+
+      panel.appendChild(row);
     });
-    row.appendChild(applyBtn);
-
-    panel.appendChild(row);
     recalcPadding();
   }
 
-  function renderDrawerMatches(matches, error) {
+  function renderDrawerMatches(matches, error, reason) {
     const container = document.getElementById('drawer-matches');
 
     if (error) {
@@ -1777,7 +1809,11 @@
       return;
     }
     if (!matches || matches.length === 0) {
-      container.innerHTML = '<div class="drawer-empty">No text styles found in library</div>';
+      if (reason) {
+        container.innerHTML = `<div class="match-no-confident-reason">${escapeHtml(reason)}</div>`;
+      } else {
+        container.innerHTML = '<div class="drawer-empty">No text styles found in library</div>';
+      }
       return;
     }
 
@@ -1785,6 +1821,7 @@
     matches.forEach(match => {
       const row = document.createElement('div');
       row.className = 'match-row';
+      if (match.isColorFirst === true) row.classList.add('match-row--color-first');
 
       // Swatch (color matches only) — for variables show multi-mode dots
       if (match.hexValue) {
@@ -1826,7 +1863,11 @@
 
       // Confidence % (alias colors) or legacy distance / typography score
       let distLabel, distCls, distTitle = '';
-      if (match.variableId && match.confidence !== undefined) {
+      if (match.isColorFirst === true) {
+        distLabel = 'COLOR MATCH';
+        distTitle = 'Closest color in library by ΔE (not role-validated). ΔE ≈ ' +
+          (match.distanceScore !== undefined ? match.distanceScore : '—');
+      } else if (match.variableId && match.confidence !== undefined) {
         const c = Math.round(match.confidence);
         distLabel = c + '%';
         distCls =
@@ -1847,7 +1888,9 @@
         else                 { distLabel = 'approx'; distCls = 'dist-approx'; }
       }
       const distEl = document.createElement('span');
-      distEl.className = `match-dist ${distCls}`;
+      distEl.className = match.isColorFirst === true
+        ? 'match-dist match-dist--color-match'
+        : `match-dist ${distCls}`;
       distEl.textContent = distLabel;
       if (distTitle) distEl.title = distTitle;
       row.appendChild(distEl);
@@ -1911,6 +1954,7 @@
     } else if (msg.type === 'scan-start') {
       headerLayerCount = msg.nodeCount;
       headerIssueCount = null;
+      headerTokensurePercent = null;
       setState('scanning');
       initTabBarScanning();
 
@@ -1942,10 +1986,11 @@
       const btn = document.getElementById('btn-run');
       btn.classList.remove('scanning');
       btn.disabled = false;
-      btn.querySelector('.btn-run-label').textContent = 'RUN';
+      btn.querySelector('.btn-run-label').textContent = 'SCAN';
       appState = 'results';
       headerLayerCount = msg.totalLayers;
       headerIssueCount = msg.totalIssues;
+      headerTokensurePercent = typeof msg.tokensurePercent === 'number' ? msg.tokensurePercent : 0;
       updateHeaderTitle();
       recalcPadding();
 
@@ -1996,7 +2041,7 @@
         const { wrapper, group } = pendingMatchTarget;
         pendingMatchTarget = null;
         if (wrapper && wrapper.isConnected) {
-          renderInlineMatch(wrapper, group, msg.matches, msg.error || null);
+          renderInlineMatch(wrapper, group, msg.matches, msg.error || null, msg.reason || null);
         }
         return;
       }
@@ -2004,7 +2049,7 @@
       if (!drawerEl.classList.contains('open') || !currentDrawerGroup) {
         return;
       }
-      renderDrawerMatches(msg.matches, msg.error || null);
+      renderDrawerMatches(msg.matches, msg.error || null, msg.reason || null);
 
     } else if (msg.type === 'apply-style-result') {
       // Row removal is optimistic (handled in APPLY click).

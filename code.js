@@ -323,6 +323,152 @@ function getRawOpacityValues(node) {
             property: 'opacity', rawValue: `${Math.round(opacity * 100)}%`,
         }];
 }
+/** Audited token slots (linked + not) vs issues — mirrors each getRaw* rule for TOKENSURE %. */
+function accumulatePaintAudit(node) {
+    if (isNoiseNode(node))
+        return { total: 0, issues: 0 };
+    let total = 0;
+    let issues = 0;
+    if ('fills' in node && Array.isArray(node.fills)) {
+        const styleUnbound = !('fillStyleId' in node) || node.fillStyleId === '';
+        if (styleUnbound) {
+            node.fills.forEach((paint, i) => {
+                if (paint.type !== 'SOLID')
+                    return;
+                const hex = solidPaintToHex(paint).toUpperCase();
+                if (isFillIndexBound(node, i)) {
+                    total++;
+                }
+                else if (DEFAULT_SUPPRESSED_VALUES.has(hex)) {
+                    /* same as scan: suppressed rogue fills/strokes omitted */
+                }
+                else {
+                    total++;
+                    issues++;
+                }
+            });
+        }
+    }
+    if ('strokes' in node && Array.isArray(node.strokes)) {
+        const styleUnbound = !('strokeStyleId' in node) || node.strokeStyleId === '';
+        if (styleUnbound) {
+            node.strokes.forEach((paint, i) => {
+                if (paint.type !== 'SOLID')
+                    return;
+                const hex = solidPaintToHex(paint).toUpperCase();
+                if (isStrokeIndexBound(node, i)) {
+                    total++;
+                }
+                else if (DEFAULT_SUPPRESSED_VALUES.has(hex)) {
+                    /* omitted */
+                }
+                else {
+                    total++;
+                    issues++;
+                }
+            });
+        }
+    }
+    return { total, issues };
+}
+function accumulateTextAudit(node) {
+    if (node.type !== 'TEXT')
+        return { total: 0, issues: 0 };
+    const styleId = node.textStyleId;
+    if (styleId !== figma.mixed && styleId !== '')
+        return { total: 0, issues: 0 };
+    if (isScalarBound(node, 'fontSize') || isScalarBound(node, 'fontFamily'))
+        return { total: 1, issues: 0 };
+    return { total: 1, issues: 1 };
+}
+const SPACING_AUDIT_KEYS = ['paddingTop', 'paddingBottom', 'paddingLeft', 'paddingRight', 'itemSpacing'];
+function accumulateSpacingAudit(node) {
+    if (!('layoutMode' in node) || node.layoutMode === 'NONE')
+        return { total: 0, issues: 0 };
+    const frame = node;
+    let total = 0;
+    let issues = 0;
+    for (const key of SPACING_AUDIT_KEYS) {
+        if (isScalarBound(node, key))
+            continue;
+        const val = frame[key];
+        if (typeof val !== 'number')
+            continue;
+        total++;
+        if (val % 4 !== 0)
+            issues++;
+    }
+    return { total, issues };
+}
+function accumulateRadiusAudit(node) {
+    if (!('cornerRadius' in node))
+        return { total: 0, issues: 0 };
+    const keys = [
+        'cornerRadius', 'topLeftRadius', 'topRightRadius',
+        'bottomLeftRadius', 'bottomRightRadius',
+    ];
+    const seen = new Set();
+    let total = 0;
+    let issues = 0;
+    for (const key of keys) {
+        if (isScalarBound(node, key))
+            continue;
+        const val = node[key];
+        if (typeof val !== 'number' || val === 0 || seen.has(val))
+            continue;
+        seen.add(val);
+        total++;
+        if (val % 2 !== 0)
+            issues++;
+    }
+    return { total, issues };
+}
+function accumulateOpacityAudit(node) {
+    if (!('opacity' in node))
+        return { total: 0, issues: 0 };
+    if (isScalarBound(node, 'opacity'))
+        return { total: 0, issues: 0 };
+    const opacity = node.opacity;
+    if (typeof opacity !== 'number' || opacity === 1 || opacity === 0)
+        return { total: 0, issues: 0 };
+    return { total: 1, issues: 1 };
+}
+function accumulateEffectAudit(node) {
+    if (!('effectStyleId' in node) || !('effects' in node))
+        return { total: 0, issues: 0 };
+    if (node.effectStyleId !== '')
+        return { total: 0, issues: 0 };
+    if (isScalarBound(node, 'effects'))
+        return { total: 0, issues: 0 };
+    const effects = node.effects;
+    if (!Array.isArray(effects) || effects.length === 0)
+        return { total: 0, issues: 0 };
+    let total = 0;
+    let issues = 0;
+    for (const effect of effects) {
+        if (!effect.visible || !RECORDABLE_EFFECTS.has(effect.type))
+            continue;
+        total++;
+        issues++;
+    }
+    return { total, issues };
+}
+function accumulateNodeTokenAudit(node) {
+    let total = 0;
+    let issues = 0;
+    for (const part of [
+        accumulatePaintAudit(node),
+        accumulateTextAudit(node),
+        accumulateSpacingAudit(node),
+        accumulateRadiusAudit(node),
+        accumulateOpacityAudit(node),
+        accumulateEffectAudit(node),
+    ]) {
+        total += part.total;
+        issues += part.issues;
+    }
+    return { total, issues };
+}
 function groupRecords(records, flatten = false) {
     if (flatten) {
         // One row per individual instance — lets designers pick the right token per layer
@@ -363,6 +509,8 @@ async function runScan(scope) {
     const rawOpacity = [];
     const rawEffects = [];
     let layerCount = 0;
+    let auditTotal = 0;
+    let auditIssues = 0;
     // Resolve roots based on scope
     const selection = figma.currentPage.selection;
     const useSelection = scope === 'selection' && selection.length > 0;
@@ -373,6 +521,9 @@ async function runScan(scope) {
     for (const root of roots) {
         traverseNodes(root, (node) => {
             layerCount++;
+            const audit = accumulateNodeTokenAudit(node);
+            auditTotal += audit.total;
+            auditIssues += audit.issues;
             for (const r of getRawPaintValues(node)) {
                 if (!DEFAULT_SUPPRESSED_VALUES.has(r.rawValue.toUpperCase()))
                     rawColors.push(r);
@@ -405,7 +556,16 @@ async function runScan(scope) {
         await yield_();
     }
     // ── scan-complete ─────────────────────────────────────────────────────────
-    figma.ui.postMessage({ type: 'scan-complete', totalIssues, totalLayers: layerCount, scopeUsed });
+    const tokensurePercent = auditTotal === 0
+        ? 100
+        : Math.min(100, Math.max(0, Math.round((100 * (auditTotal - auditIssues)) / auditTotal)));
+    figma.ui.postMessage({
+        type: 'scan-complete',
+        totalIssues,
+        totalLayers: layerCount,
+        scopeUsed,
+        tokensurePercent,
+    });
 }
 function hexToRgb(hex) {
     const n = parseInt(hex.replace('#', ''), 16);
@@ -562,6 +722,16 @@ function isExcludedAliasForFill(norm) {
         return true;
     if (/\blabel\b/.test(norm) || /\bheading\b/.test(norm) || /\bcaption\b/.test(norm))
         return true;
+    if (/\bon[\s\-_]/.test(norm))
+        return true;
+    if (/\bplaceholder\b/.test(norm))
+        return true;
+    if (/\bcaret\b/.test(norm))
+        return true;
+    if (/\blink\b/.test(norm))
+        return true;
+    if (/\bvisited\b/.test(norm))
+        return true;
     return false;
 }
 /**
@@ -615,7 +785,7 @@ function semanticConfidenceTextColor(norm) {
         return 76;
     if (/\blabel\b/.test(norm) || /\bcaption\b/.test(norm) || /\bbody\b/.test(norm))
         return 72;
-    return 56;
+    return 45;
 }
 /** Semantic fit 0–100 for stroke / border color */
 function semanticConfidenceStroke(norm) {
@@ -625,7 +795,7 @@ function semanticConfidenceStroke(norm) {
         return 86;
     if (/\btext\b/.test(norm) && !/\bborder\b/.test(norm))
         return 36;
-    return 54;
+    return 45;
 }
 /** Semantic fit 0–100 for shape / surface fill (tokens already filtered) */
 function semanticConfidenceFill(norm) {
@@ -637,7 +807,7 @@ function semanticConfidenceFill(norm) {
         return 80;
     if (/\bmuted\b/.test(norm) || /\bsubtle\b/.test(norm))
         return 76;
-    return 70;
+    return 45;
 }
 function semanticConfidenceForRole(role, norm) {
     if (role === 'textColor')
@@ -656,8 +826,19 @@ function blendAliasConfidence(perceptual, semantic) {
     const v = CONF_WEIGHT_PERCEPTUAL * perceptual + CONF_WEIGHT_SEMANTIC * semantic;
     return Math.min(100, Math.max(0, Math.round(v)));
 }
-/** Alias suggestions returned to UI (inline row shows the first only) */
-const CLOSEST_ALIAS_MATCH_COUNT = 1;
+/** Rule-validated slots (1–2) + optional color-first slot 3 */
+const CLOSEST_ALIAS_MATCH_COUNT = 3;
+/** Perceptual pool size before role filtering / re-ranking */
+const CANDIDATE_POOL_SIZE = 20;
+const MIN_ALIAS_CONFIDENCE_THRESHOLD = 55;
+function finalizeColorMatchesFromScored(scored) {
+    const top = sliceTopMatches(scored, CLOSEST_ALIAS_MATCH_COUNT);
+    const filtered = top.filter(m => { var _a; return ((_a = m.confidence) !== null && _a !== void 0 ? _a : 0) >= MIN_ALIAS_CONFIDENCE_THRESHOLD; });
+    if (filtered.length === 0) {
+        return { matches: [], reason: 'No confident match found in library' };
+    }
+    return { matches: filtered };
+}
 /**
  * Text glyph color aliases: paths under `text`, `text/inverse`, emphasis steps, etc.
  * Excludes border-only container tokens (see border bucket).
@@ -720,34 +901,127 @@ function scoreAliasEntries(targetLab, role, entries, includeIf) {
 function sliceTopMatches(scored, n) {
     return scored.slice(0, n).map(s => s.match);
 }
+/**
+ * Color-first pool: every alias token scored by minimum ΔE76 across modes only.
+ * Pure; read-only index.
+ */
+function generateCandidates(targetLab, fullIndex) {
+    const rows = [];
+    for (const entry of fullIndex) {
+        let bestDist = Infinity;
+        let bestHex = '';
+        for (const mode of entry.modes) {
+            const d = deltaE76(targetLab, hexToLab(mode.hex));
+            if (d < bestDist) {
+                bestDist = d;
+                bestHex = mode.hex;
+            }
+        }
+        if (!bestHex)
+            continue;
+        rows.push({ entry, deltaE: bestDist, bestModeHex: bestHex });
+    }
+    rows.sort((a, b) => a.deltaE - b.deltaE);
+    return rows.slice(0, CANDIDATE_POOL_SIZE);
+}
+function poolHasTextAliasMember(pool) {
+    return pool.some(c => inTextAliasBucket(normalizeTokenLabel(c.entry)));
+}
+function poolHasBorderAliasMember(pool) {
+    return pool.some(c => inBorderAliasBucket(normalizeTokenLabel(c.entry)));
+}
+/** Bucket A: candidates that pass role rules (within the current pool). Pure. */
+function passesRoleRulesForBucketA(c, role, pool) {
+    const norm = normalizeTokenLabel(c.entry);
+    if (role === 'fill')
+        return !isExcludedAliasForFill(norm);
+    if (role === 'textColor') {
+        if (poolHasTextAliasMember(pool))
+            return inTextAliasBucket(norm);
+        return true;
+    }
+    if (role === 'stroke') {
+        if (poolHasBorderAliasMember(pool))
+            return inBorderAliasBucket(norm);
+        return true;
+    }
+    return true;
+}
+function scoredFromCandidateForRole(c, role) {
+    const { entry, deltaE, bestModeHex } = c;
+    const norm = normalizeTokenLabel(entry);
+    const distanceScore = Math.round(deltaE * 100) / 100;
+    const perceptual = perceptualConfidenceFromDeltaE76(deltaE);
+    const semantic = semanticConfidenceForRole(role, norm);
+    const confidence = blendAliasConfidence(perceptual, semantic);
+    const match = {
+        variableId: entry.variableId,
+        variableName: entry.variableName,
+        collectionName: entry.collectionName,
+        variableModes: entry.modes,
+        hexValue: bestModeHex,
+        distanceScore,
+        confidence,
+        isColorFirst: false,
+    };
+    return { match, confidence, distanceScore };
+}
+function colorFirstMatchFromCandidate(c) {
+    const { entry, deltaE, bestModeHex } = c;
+    const distanceScore = Math.round(deltaE * 100) / 100;
+    return {
+        variableId: entry.variableId,
+        variableName: entry.variableName,
+        collectionName: entry.collectionName,
+        variableModes: entry.modes,
+        hexValue: bestModeHex,
+        distanceScore,
+        isColorFirst: true,
+    };
+}
+/**
+ * Re-rank the top-N ΔE pool: up to 2 rule-scored matches (threshold on those only) + 1 color-first slot.
+ * Pure; read-only candidates.
+ */
+function rerankCandidates(candidates, role) {
+    if (candidates.length === 0) {
+        return { matches: [], reason: 'No confident match found in library' };
+    }
+    const pool = candidates;
+    const bucketA = pool.filter(c => passesRoleRulesForBucketA(c, role, pool));
+    const scoredA = bucketA.map(c => scoredFromCandidateForRole(c, role));
+    scoredA.sort((a, b) => {
+        if (b.confidence !== a.confidence)
+            return b.confidence - a.confidence;
+        return a.distanceScore - b.distanceScore;
+    });
+    const top2Scored = scoredA.slice(0, 2);
+    const slots12 = top2Scored
+        .filter(s => { var _a; return ((_a = s.match.confidence) !== null && _a !== void 0 ? _a : 0) >= MIN_ALIAS_CONFIDENCE_THRESHOLD; })
+        .map(s => s.match);
+    const used = new Set(slots12.map(m => m.variableId).filter((id) => Boolean(id)));
+    let slot3 = null;
+    for (const c of pool) {
+        if (used.has(c.entry.variableId))
+            continue;
+        slot3 = colorFirstMatchFromCandidate(c);
+        break;
+    }
+    const matches = [...slots12];
+    if (slot3)
+        matches.push(slot3);
+    if (matches.length === 0) {
+        return { matches: [], reason: 'No confident match found in library' };
+    }
+    return { matches };
+}
 async function getClosestColorMatches(rawHex, role) {
     if (!cachedVariableColorIndex)
         cachedVariableColorIndex = await buildVariableColorIndex();
     const targetLab = hexToLab(rawHex);
     const entries = cachedVariableColorIndex;
-    const n = CLOSEST_ALIAS_MATCH_COUNT;
-    if (role === 'fill') {
-        return sliceTopMatches(scoreAliasEntries(targetLab, role, entries, null), n);
-    }
-    if (role === 'textColor') {
-        const inBucket = scoreAliasEntries(targetLab, role, entries, inTextAliasBucket);
-        // Always prefer text-bucket aliases when any exist — do not fall through to “outside”
-        // just because confidence is modest (perceptual closeness to tertiary text still wins).
-        if (inBucket.length > 0)
-            return sliceTopMatches(inBucket, n);
-        const outside = scoreAliasEntries(targetLab, role, entries, norm => !inTextAliasBucket(norm));
-        return sliceTopMatches(outside, n);
-    }
-    if (role === 'stroke') {
-        const inBucket = scoreAliasEntries(targetLab, role, entries, inBorderAliasBucket);
-        // Same as text: border/stroke bucket first by sorted confidence, never swap in
-        // background/divider tokens just because border aliases scored below an arbitrary threshold.
-        if (inBucket.length > 0)
-            return sliceTopMatches(inBucket, n);
-        const outside = scoreAliasEntries(targetLab, role, entries, norm => !inBorderAliasBucket(norm));
-        return sliceTopMatches(outside, n);
-    }
-    return sliceTopMatches(scoreAliasEntries(targetLab, role, entries, null), n);
+    const candidates = generateCandidates(targetLab, entries);
+    return rerankCandidates(candidates, role);
 }
 function fontStyleToWeight(style) {
     const s = style.toLowerCase();
@@ -810,19 +1084,27 @@ figma.ui.onmessage = async (msg) => {
         const { property, rawValue, matchSeq } = msg;
         const reply = (payload) => figma.ui.postMessage(Object.assign({ type: 'closest-match-result', matchSeq }, payload));
         try {
-            let matches = [];
             if (property === 'fill' || property === 'stroke' || property === 'textColor') {
-                matches = await getClosestColorMatches(rawValue, property);
+                const colorResult = await getClosestColorMatches(rawValue, property);
+                if (colorResult.matches.length === 0 && colorResult.reason) {
+                    reply({ matches: [], reason: colorResult.reason });
+                }
+                else {
+                    reply({ matches: colorResult.matches });
+                }
             }
             else if (property === 'text') {
                 const parts = rawValue.split('/');
-                matches = await getClosestTextMatches({
+                const matches = await getClosestTextMatches({
                     fontSize: parseFloat(parts[0]) || 0,
                     fontFamily: parts[2] || '',
                     fontWeight: 400,
                 });
+                reply({ matches });
             }
-            reply({ matches });
+            else {
+                reply({ matches: [] });
+            }
         }
         catch (err) {
             const error = err instanceof Error ? err.message : String(err);
